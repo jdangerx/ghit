@@ -2,6 +2,7 @@
 
 module Object where
 
+import Control.Monad
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString as BS
@@ -77,3 +78,6 @@ hello = "x\x01K\xca\xc9OR0e\xc8H\xcd\xc9\xc9\x07\x00\x19\xaa\x04\t"
 
 helloBlob :: Object
 helloBlob = Obj Blob "hello"
+
+showLooseObj :: FilePath -> IO (Maybe Object)
+showLooseObj fp = liftM getLooseObj (BL.readFile fp)
