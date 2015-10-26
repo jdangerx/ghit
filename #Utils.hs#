@@ -12,6 +12,8 @@ asciiToInt :: BS.ByteString -> Int
 asciiToInt =
   BS.foldl (\acc w -> acc * 10  + fromIntegral w - 48) 0
 
+prop
+
 intToAscii :: Int -> BS.ByteString
 intToAscii i' = BS.pack (word8s i')
   where

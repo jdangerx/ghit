@@ -1,9 +1,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Index where
 
-import Control.Monad
 import Data.Bits ((.&.))
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy as BL
 import qualified Data.Attoparsec.ByteString as A
 
 import Utils
@@ -102,28 +102,32 @@ entry version =
      A.take numBytesPadding
      return $ Entry ctime mtime device ino mode uid gid fileSize sha flags entryPath
 
+prettyEntry :: Entry -> BL.ByteString
+prettyEntry ent =
+  BL.concat [ ]
+
 cachedTree :: A.Parser Extension
 cachedTree = do
   A.string "TREE"
   parse32Bit
   path <- A.takeTill (== 0)
   A.word8 0
-  numEntries <- byteStringToInt <$> A.takeWhile (\c -> c <= 57 && c >= 48)
+  numEntries <- asciiToInt <$> A.takeWhile1 digit
   A.word8 32
-  numSubtrees <- byteStringToInt <$> A.takeWhile (\c -> c <= 57 && c >= 48)
+  numSubtrees <- asciiToInt <$> A.takeWhile1 digit
   A.word8 10
   objName <- A.take 20
   return $ CachedTree path numEntries numSubtrees objName
 
-extension' :: A.Parser Extension
-extension' = do
+otherExtensions :: A.Parser Extension
+otherExtensions = do
   signature <- A.choice $ A.string <$> ["TREE", "REUC", "link", "UNTR"]
   len <- parse32Bit
   cont <- A.take len
   return $ Ext signature cont
 
 extension :: A.Parser Extension
-extension = A.choice [cachedTree, extension']
+extension = A.choice [cachedTree, otherExtensions]
 
 makeV2Flags :: Int -> Flags
 makeV2Flags i =

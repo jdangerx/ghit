@@ -8,10 +8,8 @@ import Utils
 
 
 hashObject :: Object -> (String, BS.ByteString)
-hashObject (Blob content) =
-  let header = BS.concat ["blob ", intToByteString $ BS.length content, "\0"]
-      fullBS = BS.concat [header, content]
+hashObject obj =
+  let fullBS = serializeObj obj
   in (toHexes . SHA1.hash $ fullBS, fullBS)
-hashObject _ = error "unsupported object type"
 
 -- write index

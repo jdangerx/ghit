@@ -27,32 +27,36 @@ parseObjType = A.choice
 
 parseContLen :: A.Parser Int
 parseContLen = do
-  numStr <- A.takeWhile1 (\w -> w >= 48 && w <= 57)
-  return $ byteStringToInt numStr
+  numStr <- A.takeWhile1 digit
+  return $ asciiToInt numStr
 
 parseObj :: A.Parser Object
 parseObj = do
   objCons <- parseObjType
-  A.word8 32
+  A.word8 32 -- ' '
   contLen <- parseContLen
-  A.word8 0
+  A.word8 0 -- '\0'
   cont <- A.take contLen
   return $ objCons cont
 
 getLooseObj :: BL.ByteString -> Maybe Object
 getLooseObj = A.maybeResult . A.parse parseObj . BL.toStrict . Zlib.decompress
 
-serializeObj :: Object -> BL.ByteString
+serializeObj :: Object -> BS.ByteString
 serializeObj obj =
-  let typeBL = case obj of Blob _ -> "blob"
-                           Tree _ -> "tree"
-                           Commit _ -> "commit"
-                           Tag _ -> "tag"
-      cont = contentOf obj
-      contSize = intToByteString $ BS.length cont
+  let cont = contentOf obj
+      contSize = intToAscii $ BS.length cont
   in
-   Zlib.compress . BL.concat $
-   [typeBL, " ", BL.fromStrict contSize, "\x00", BL.fromStrict cont]
+   BS.concat [typeName obj
+             , " "
+             , contSize
+             , "\x00", cont]
+
+typeName :: Object -> BS.ByteString
+typeName (Blob _) = "blob"
+typeName (Tree _) = "tree"
+typeName (Commit _) = "commit"
+typeName (Tag _) = "tag"
 
 hello :: BL.ByteString
 hello = "x\x01K\xca\xc9OR0e\xc8H\xcd\xc9\xc9\x07\x00\x19\xaa\x04\t"
