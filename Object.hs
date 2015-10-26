@@ -5,9 +5,10 @@ module Object where
 import Control.Monad
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString as BS
-import Data.Word (Word8)
 import qualified Codec.Compression.Zlib as Zlib
 import qualified Data.Attoparsec.ByteString as A
+
+import Utils
 
 data Object = Blob { contentOf :: Content }
             | Tree { contentOf :: Content }
@@ -16,18 +17,6 @@ data Object = Blob { contentOf :: Content }
               deriving Show
 
 type Content = BS.ByteString
-
-byteStringToInt :: BS.ByteString -> Int
-byteStringToInt =
-  BS.foldl (\acc w -> acc * 10  + fromIntegral w - 48) 0
-
-intToByteString :: Int -> BS.ByteString
-intToByteString i' = BS.pack (word8s i')
-  where
-    word8s :: Int -> [Word8]
-    word8s i
-          | i < 10 = [fromIntegral i + 48]
-          | otherwise = word8s (i `div` 10) ++ [fromIntegral i `mod` 10 + 48]
 
 parseObjType :: A.Parser (Content -> Object)
 parseObjType = A.choice

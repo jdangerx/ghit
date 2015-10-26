@@ -3,10 +3,10 @@ module Index where
 
 import Control.Monad
 import Data.Bits ((.&.))
-import Data.Char (intToDigit)
 import qualified Data.ByteString as BS
 import qualified Data.Attoparsec.ByteString as A
 
+import Utils
 
 -- https://github.com/git/git/blob/master/Documentation/technical/index-format.txt
 
@@ -72,7 +72,6 @@ index = do
   numEntries <- parse32Bit
   entries <- A.count numEntries $ entry version
   exts <- A.many' extension
-  -- let exts = []
   checksum <- A.take 20
   return $ Index version numEntries entries exts checksum
 
@@ -109,9 +108,9 @@ cachedTree = do
   parse32Bit
   path <- A.takeTill (== 0)
   A.word8 0
-  numEntries <- convertAsciiInt <$> A.takeWhile (\c -> c <= 57 && c >= 48)
+  numEntries <- byteStringToInt <$> A.takeWhile (\c -> c <= 57 && c >= 48)
   A.word8 32
-  numSubtrees <- convertAsciiInt <$> A.takeWhile (\c -> c <= 57 && c >= 48)
+  numSubtrees <- byteStringToInt <$> A.takeWhile (\c -> c <= 57 && c >= 48)
   A.word8 10
   objName <- A.take 20
   return $ CachedTree path numEntries numSubtrees objName
@@ -153,29 +152,6 @@ getMode i =
                  10 -> Symlink
                  14 -> Gitlink
   in Mode objType permBits
-
-toHexes :: BS.ByteString -> String
-toHexes =
-  BS.foldr
-  (\byte hexes ->
-    (++ hexes) $ intToDigit <$> [fromIntegral byte `div` 16
-                                , fromIntegral byte `mod` 16])
-  ""
-
-parseBytes :: Int -> A.Parser Int
-parseBytes n = do
-  bytes <- A.count n A.anyWord8
-  return . foldl (\acc i -> acc * 256 + fromIntegral i) 0 $ bytes
-
-convertAsciiInt :: BS.ByteString -> Int
-convertAsciiInt =
-  BS.foldl (\acc i -> fromIntegral $ i - 48 + fromIntegral acc * 10) 0
-
-parse32Bit :: A.Parser Int
-parse32Bit = parseBytes 4
-
-parse16Bit :: A.Parser Int
-parse16Bit = parseBytes 2
 
 billion :: Int
 billion = 10 ^ (9 :: Int)
