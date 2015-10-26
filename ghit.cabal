@@ -25,5 +25,6 @@ executable ghit
                      , attoparsec >=0.13 && <0.14
                      , cryptohash >=0.11 && <0.12
                      , filepath >= 1.4 && <1.5
+                     , QuickCheck >= 2.8 && < 2.9
   -- hs-source-dirs:      
   default-language:    Haskell2010

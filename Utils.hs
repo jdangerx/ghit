@@ -5,6 +5,8 @@ import qualified Data.ByteString as BS
 import Data.Char (intToDigit)
 import Data.Word (Word8)
 
+import Test.QuickCheck
+
 digit :: Word8 -> Bool
 digit w = w >= 48 && w <= 57
 
@@ -17,8 +19,16 @@ intToAscii i' = BS.pack (word8s i')
   where
     word8s :: Int -> [Word8]
     word8s i
-          | i < 10 = [fromIntegral i + 48]
-          | otherwise = word8s (i `div` 10) ++ [fromIntegral i `mod` 10 + 48]
+      | i < 10 = [fromIntegral i + 48]
+      | otherwise = word8s (i `div` 10) ++ [fromIntegral i `mod` 10 + 48]
+
+parseAsciiInt :: A.Parser Int
+parseAsciiInt = asciiToInt <$> A.takeWhile1 digit
+
+prop_asciiIntRoundTrip :: Gen Bool
+prop_asciiIntRoundTrip = do
+  i <- arbitrary `suchThat` (>= 0)
+  return $ asciiToInt (intToAscii i) == i
 
 toHexes :: BS.ByteString -> String
 toHexes =
