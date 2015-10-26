@@ -9,6 +9,7 @@ import Add
 main :: IO ()
 main = do
   [cmd, file] <- getArgs
-  when (cmd == "show") $ showLooseObj file >>= print
+  return ()
+  -- when (cmd == "show") $ showLooseObj file >>= print
       
 

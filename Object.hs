@@ -2,67 +2,114 @@
 
 module Object where
 
-import Control.Monad
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BSC
+import Data.Word (Word8)
+
+import Crypto.Hash.SHA1 (hash)
 import qualified Codec.Compression.Zlib as Zlib
 import qualified Data.Attoparsec.ByteString as A
+import Test.QuickCheck
 
 import Utils
 
-data Object = Blob { contentOf :: Content }
-            | Tree { contentOf :: Content }
-            | Commit { contentOf :: Content }
-            | Tag { contentOf :: Content }
-              deriving Show
 
-type Content = BS.ByteString
+class GitObject a where
+  typeName :: a -> BS.ByteString
+  contLen :: a -> Int
+  content :: a -> BS.ByteString
+  parser :: A.Parser a
 
-parseObjType :: A.Parser (Content -> Object)
-parseObjType = A.choice
-  [ A.string "blob" *> return Blob
-  , A.string "tree" *> return Tree
-  , A.string "commit" *> return Commit
-  , A.string "tag" *> return Tag ]
-
-parseContLen :: A.Parser Int
-parseContLen = do
-  numStr <- A.takeWhile1 digit
-  return $ asciiToInt numStr
-
-parseObj :: A.Parser Object
-parseObj = do
-  objCons <- parseObjType
-  A.word8 32 -- ' '
-  contLen <- parseContLen
-  A.word8 0 -- '\0'
-  cont <- A.take contLen
-  return $ objCons cont
-
-getLooseObj :: BL.ByteString -> Maybe Object
-getLooseObj = A.maybeResult . A.parse parseObj . BL.toStrict . Zlib.decompress
-
-serializeObj :: Object -> BS.ByteString
-serializeObj obj =
-  let cont = contentOf obj
-      contSize = intToAscii $ BS.length cont
-  in
-   BS.concat [typeName obj
+  serialize :: a -> BS.ByteString
+  serialize obj =
+   BS.concat [ typeName obj
              , " "
-             , contSize
-             , "\x00", cont]
+             , BSC.pack . show . contLen $ obj
+             , "\x00", content obj]
 
-typeName :: Object -> BS.ByteString
-typeName (Blob _) = "blob"
-typeName (Tree _) = "tree"
-typeName (Commit _) = "commit"
-typeName (Tag _) = "tag"
+  deserialize :: BS.ByteString -> Either String a
+  deserialize = A.parseOnly parser
 
-hello :: BL.ByteString
-hello = "x\x01K\xca\xc9OR0e\xc8H\xcd\xc9\xc9\x07\x00\x19\xaa\x04\t"
+  compressed :: a -> BL.ByteString
+  compressed = Zlib.compress . BL.fromStrict . serialize
 
-helloBlob :: Object
-helloBlob = Blob "hello"
+  sha :: a -> SHA1
+  sha = SHA1 . hash . serialize
 
-showLooseObj :: FilePath -> IO (Maybe Object)
-showLooseObj fp = liftM getLooseObj (BL.readFile fp)
+newtype SHA1 = SHA1 BS.ByteString
+               deriving (Eq, Show)
+
+data Blob = Blob Int BS.ByteString
+            deriving (Eq, Show)
+
+instance GitObject Blob where
+  typeName _ = "blob"
+  contLen (Blob contLen' _) = contLen'
+  content (Blob _ content') = content'
+  parser = do
+    contLen' <- pContLen "blob"
+    content' <- A.take contLen'
+    return $ Blob contLen' content'
+
+instance Arbitrary Blob where
+  arbitrary = do
+    content' <- BSC.pack <$> arbitrary
+    return $ Blob (BS.length content') content'
+
+prop_blobRT :: Blob -> Bool
+prop_blobRT blob = Right blob == deserialize (serialize blob)
+
+pContLen :: BS.ByteString -> A.Parser Int
+pContLen bs = A.string bs *> A.word8 32 *> parseAsciiInt <* A.word8 0
+
+
+data Tree = Tree Int [TreeEntry]
+            deriving (Eq, Show)
+
+data TreeEntry = TreeEntry Perms FilePath SHA1
+                 deriving (Eq, Show)
+
+type Perms = BS.ByteString
+
+instance GitObject Tree where
+  typeName _ = "tree"
+  contLen (Tree i _) = i
+  content (Tree _ entries) =
+    BS.concat $ serEntry <$> entries
+  parser = do
+    contLen' <- pContLen "tree"
+    if contLen' == 0
+      then return $ Tree 0 []
+      else do entries <- A.many' treeEntry
+              return $ Tree contLen' entries
+    where
+      treeEntry :: A.Parser TreeEntry
+      treeEntry = do
+        perms <- A.takeWhile1 digit A.<?> "perms"
+        fp <- A.word8 32 *> A.takeTill (== 0) <* A.word8 0 A.<?> "filepath"
+        sha' <- A.take 20 A.<?> "sha"
+        return $ TreeEntry perms (BSC.unpack fp) (SHA1 sha')
+
+serEntry :: TreeEntry -> BS.ByteString
+serEntry (TreeEntry perms fp (SHA1 shaBS)) =
+  BS.concat [perms, " ", BSC.pack fp, "\0", shaBS]
+
+instance Arbitrary SHA1 where
+  arbitrary = SHA1 . BS.pack <$> vectorOf 20 (choose (0, 255) :: Gen Word8)
+
+instance Arbitrary TreeEntry where
+  arbitrary = do
+    perms <- elements ["40000", "100644"]
+    fp <- arbitrary `suchThat` (\s -> length s > 3 && ('\0' `notElem` s))
+    sha1 <- arbitrary
+    return $ TreeEntry perms fp sha1
+
+instance Arbitrary Tree where
+  arbitrary = do
+    entries <- arbitrary :: Gen [TreeEntry]
+    let size = sum $ BS.length . serEntry <$> entries
+    return $ Tree size entries
+
+prop_treeRT :: Tree -> Bool
+prop_treeRT tree = Right tree == deserialize (serialize tree)
