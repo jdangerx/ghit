@@ -4,6 +4,7 @@ import Control.Monad
 import System.Environment
 
 import Object
+import Add
 
 main :: IO ()
 main = do

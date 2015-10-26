@@ -19,6 +19,11 @@ executable ghit
   main-is:             Main.hs
   -- other-modules:       
   other-extensions:    OverloadedStrings
-  build-depends:       base >=4.8 && <4.9, bytestring >=0.10 && <0.11, zlib >=0.6 && <0.7, attoparsec >=0.13 && <0.14
+  build-depends:       base >=4.8 && <4.9
+                     , bytestring >=0.10 && <0.11
+                     , zlib >=0.6 && <0.7
+                     , attoparsec >=0.13 && <0.14
+                     , cryptohash >=0.11 && <0.12
+                     , filepath >= 1.4 && <1.5
   -- hs-source-dirs:      
   default-language:    Haskell2010
