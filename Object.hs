@@ -16,7 +16,6 @@ import Test.QuickCheck.Monadic
 
 import Utils
 
-
 class GitObject a where
   typeName :: a -> BS.ByteString
   contLen :: a -> Int
@@ -30,17 +29,19 @@ class GitObject a where
              , BSC.pack . show . contLen $ obj
              , "\x00", content obj]
 
-  deserialize :: BS.ByteString -> Either String a
-  deserialize = A.parseOnly parser
-
   compressed :: a -> BL.ByteString
   compressed = Zlib.compress . BL.fromStrict . serialize
+
+  deserialize :: BS.ByteString -> Either String a
+  deserialize = A.parseOnly parser
 
   sha :: a -> SHA1
   sha = SHA1 . hash . serialize
 
 newtype SHA1 = SHA1 BS.ByteString
                deriving (Eq, Show)
+
+-- instance Show SHA1 where show (SHA1 shaBS) = toHexes shaBS
 
 data Blob = Blob Int BS.ByteString
             deriving (Eq, Show)
@@ -59,23 +60,6 @@ instance Arbitrary Blob where
     content' <- BSC.pack <$> arbitrary
     return $ Blob (BS.length content') content'
 
-prop_blobRT :: Blob -> Bool
-prop_blobRT blob = Right blob == deserialize (serialize blob)
-
-prop_blobGit :: Blob -> Property
-prop_blobGit blob =
-  monadicIO $ do
-    gitHashed <- run (P.readProcess
-                      "git"
-                      ["hash-object", "--stdin"]
-                      (BSC.unpack $ content blob))
-    let gitRead = deserialize (BSC.pack gitHashed) :: Either String Blob
-    return $ gitRead == Right blob
-
-pContLen :: BS.ByteString -> A.Parser Int
-pContLen bs = A.string bs *> A.word8 32 *> parseAsciiInt <* A.word8 0
-
-
 data Tree = Tree Int [TreeEntry]
             deriving (Eq, Show)
 
@@ -89,6 +73,7 @@ instance GitObject Tree where
   contLen (Tree i _) = i
   content (Tree _ entries) =
     BS.concat $ serEntry <$> entries
+
   parser = do
     contLen' <- pContLen "tree"
     if contLen' == 0
@@ -102,10 +87,6 @@ instance GitObject Tree where
         fp <- A.word8 32 *> A.takeTill (== 0) <* A.word8 0 A.<?> "filepath"
         sha' <- A.take 20 A.<?> "sha"
         return $ TreeEntry perms (BSC.unpack fp) (SHA1 sha')
-
-serEntry :: TreeEntry -> BS.ByteString
-serEntry (TreeEntry perms fp (SHA1 shaBS)) =
-  BS.concat [perms, " ", BSC.pack fp, "\0", shaBS]
 
 instance Arbitrary SHA1 where
   arbitrary = SHA1 . BS.pack <$> vectorOf 20 (choose (0, 255) :: Gen Word8)
@@ -123,15 +104,27 @@ instance Arbitrary Tree where
     let size = sum $ BS.length . serEntry <$> entries
     return $ Tree size entries
 
-prop_treeRT :: Tree -> Bool
-prop_treeRT tree = Right tree == deserialize (serialize tree)
+serEntry :: TreeEntry -> BS.ByteString
+serEntry (TreeEntry perms fp (SHA1 shaBS)) =
+  BS.concat [perms, " ", BSC.pack fp, "\0", shaBS]
 
-prop_treeGit :: Tree -> Property
-prop_treeGit tree =
+prop_blobRT :: Blob -> Bool
+prop_blobRT blob = Right blob == deserialize (serialize blob)
+
+-- round-trip through git: get content, make git hash it, see if our hashes match
+prop_blobGit :: Blob -> Property
+prop_blobGit blob =
   monadicIO $ do
     gitHashed <- run (P.readProcess
                       "git"
-                      ["hash-object", "--stdin"]
-                      (BSC.unpack $ content tree))
-    let gitRead = deserialize (BSC.pack gitHashed) :: Either String Tree
-    return $ gitRead == Right tree
+                      ["hash-object", "-t", "blob", "--stdin"]
+                      (BSC.unpack $ content blob))
+    let SHA1 shaBS = sha blob
+    return $  gitHashed == BSC.unpack shaBS
+
+prop_treeRT :: Tree -> Bool
+prop_treeRT tree = Right tree == deserialize (serialize tree)
+
+pContLen :: BS.ByteString -> A.Parser Int
+pContLen bs = A.string bs *> A.word8 32 *> parseAsciiInt <* A.word8 0
+
