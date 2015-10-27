@@ -1,7 +1,9 @@
+{-# LANGUAGE OverloadedStrings #-}
 module Utils where
 
 import qualified Data.Attoparsec.ByteString as A
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BSC
 import Data.Char (intToDigit)
 import Data.Word (Word8)
 
@@ -48,3 +50,18 @@ parse32Bit = parseBytesToInt 4
 
 parse16Bit :: A.Parser Int
 parse16Bit = parseBytesToInt 2
+
+intToBytes :: Int -> Int -> BS.ByteString
+intToBytes numBytes' int' =
+  BS.pack $ word8s numBytes' int'
+  where
+    word8s :: Int -> Int -> [Word8]
+    word8s 0 _ = []
+    word8s numBytes int =
+      word8s (numBytes - 1) (int `div` 256) ++ [fromIntegral $ int `mod` 256]
+
+pack32BitInt :: Int -> BS.ByteString
+pack32BitInt = intToBytes 4
+
+pack16BitInt :: Int -> BS.ByteString
+pack16BitInt = intToBytes 2
