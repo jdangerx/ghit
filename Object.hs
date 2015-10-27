@@ -6,11 +6,13 @@ import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
 import Data.Word (Word8)
+import qualified System.Process as P
 
 import Crypto.Hash.SHA1 (hash)
 import qualified Codec.Compression.Zlib as Zlib
 import qualified Data.Attoparsec.ByteString as A
 import Test.QuickCheck
+import Test.QuickCheck.Monadic
 
 import Utils
 
@@ -59,6 +61,16 @@ instance Arbitrary Blob where
 
 prop_blobRT :: Blob -> Bool
 prop_blobRT blob = Right blob == deserialize (serialize blob)
+
+prop_blobGit :: Blob -> Property
+prop_blobGit blob =
+  monadicIO $ do
+    gitHashed <- run (P.readProcess
+                      "git"
+                      ["hash-object", "--stdin"]
+                      (BSC.unpack $ content blob))
+    let gitRead = deserialize (BSC.pack gitHashed) :: Either String Blob
+    return $ gitRead == Right blob
 
 pContLen :: BS.ByteString -> A.Parser Int
 pContLen bs = A.string bs *> A.word8 32 *> parseAsciiInt <* A.word8 0
@@ -113,3 +125,13 @@ instance Arbitrary Tree where
 
 prop_treeRT :: Tree -> Bool
 prop_treeRT tree = Right tree == deserialize (serialize tree)
+
+prop_treeGit :: Tree -> Property
+prop_treeGit tree =
+  monadicIO $ do
+    gitHashed <- run (P.readProcess
+                      "git"
+                      ["hash-object", "--stdin"]
+                      (BSC.unpack $ content tree))
+    let gitRead = deserialize (BSC.pack gitHashed) :: Either String Tree
+    return $ gitRead == Right tree
