@@ -4,7 +4,6 @@ module Add where
 import Control.Monad
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
-import Data.Maybe (isNothing, fromJust)
 import System.Directory
 import System.FilePath
 
@@ -55,7 +54,6 @@ addBlob ind fpRelToRepo = do
   writeObj blob
   updateIndex ind fpRelToRepo blob
 
--- (a -> m b) -> m [a] -> m [b]
 getFilesInDir :: FilePath -> IO [FilePath]
 getFilesInDir dir = do
   ls <- map (dir </>) <$> (filter (/= ".git") <$> getDirectoryContents dir)
@@ -71,5 +69,3 @@ getFilesInDir dir = do
   print subDirFiles
   repoRootDir <- getRepoRootDir
   return $ makeRelative repoRootDir <$> (files ++ subDirFiles)
-
-
