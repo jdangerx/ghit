@@ -4,6 +4,7 @@ module Add where
 import Control.Monad
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
+import Data.List (sortOn)
 import Data.Maybe (isNothing, fromJust)
 import System.Directory
 import System.FilePath
@@ -64,7 +65,7 @@ updateIndex ind fp obj =
 addEntry :: Index -> Entry -> Index
 addEntry ind@(Index {numEntriesOf = numEntries, entriesOf = entries}) ent =
   let newNEntries = numEntries + 1
-      newEntries = entries ++ [ent]
+      newEntries = sortOn entryPathOf $ entries ++ [ent]
       indWithNewEntries =
         ind { numEntriesOf = newNEntries, entriesOf = newEntries }
       indWithOldChecksum = writeIndex indWithNewEntries
