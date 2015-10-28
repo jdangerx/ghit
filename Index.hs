@@ -6,6 +6,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Attoparsec.ByteString as A
+import Data.Attoparsec.Combinator (lookAhead)
 import qualified Test.QuickCheck as QC
 
 import Object
@@ -115,11 +116,14 @@ instance QC.Arbitrary Flags where
 index :: A.Parser Index
 index = do
   A.string "DIRC"
+  -- fullContent <- lookAhead A.takeByteString
+  -- let noChecksum = BS.take (BS.length fullContent - 20) fullContent
   version <- parse32Bit
   numEntries <- parse32Bit
   entries <- A.count numEntries $ entry version
   exts <- A.many' extension
   checksum <- SHA1 <$> A.take 20
+  -- when (hash noChecksum /= checksum)
   return $ Index version numEntries entries exts checksum
 
 entry :: Int -> A.Parser Entry
@@ -222,6 +226,8 @@ prop_flagsV2RT :: Flags -> Bool
 prop_flagsV2RT flags = Right flags == (makeV2Flags <$> A.parseOnly parse16Bit (writeFlags flags))
 
 
+showIndex :: FilePath -> IO ()
+showIndex fp = BS.readFile fp >>= print . A.parseOnly index
 
 -- Utils
 makeV2Flags :: Int -> Flags
