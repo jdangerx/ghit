@@ -7,18 +7,24 @@ import qualified Data.ByteString as BS
 import Data.Char (intToDigit)
 import Data.Word (Word8)
 import System.Directory
+import System.FilePath
 
 import Test.QuickCheck
 
-getGitDirectory :: IO (Maybe FilePath)
+getGitDirectory :: IO FilePath
 getGitDirectory = do
   cwd <- join $ makeAbsolute <$> getCurrentDirectory
-  gitDirIsHere <- doesDirectoryExist ".git" 
+  gitDirIsHere <- doesDirectoryExist ".git"
   if gitDirIsHere
-    then Just <$> makeAbsolute ".git"
+    then makeAbsolute ".git"
     else if cwd == "/"
-         then return Nothing
+         then error "Not in Git repo!"
          else withCurrentDirectory ".." getGitDirectory
+
+getRepoRootDir :: IO FilePath
+getRepoRootDir = do
+  gitDir <- getGitDirectory
+  return . takeDirectory . dropTrailingPathSeparator $ gitDir
 
 digit :: Word8 -> Bool
 digit w = w >= 48 && w <= 57

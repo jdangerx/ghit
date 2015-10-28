@@ -5,13 +5,13 @@ import Control.Monad
 import Data.Bits ((.&.), shift, testBit, bit)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
-import qualified Data.ByteString.Lazy as BL
 import Data.List (sortOn)
 
 import Crypto.Hash.SHA1 (hash)
 import qualified Data.Attoparsec.ByteString as A
 import Data.Attoparsec.Combinator (lookAhead)
 import qualified Test.QuickCheck as QC
+import System.FilePath
 import System.Posix.Files
 
 import Object
@@ -230,16 +230,18 @@ updateIndex ind fp obj =
 addEntry :: Index -> Entry -> Index
 addEntry ind@(Index {numEntriesOf = numEntries, entriesOf = entries}) ent =
   let newNEntries = numEntries + 1
+      newEntriesUnsorted = if ent `notElem` entries then entries ++ [ent] else entries
       newEntries = sortOn (\e -> entryPathOf e ++ show (stageOf (flagsOf e)))
-                   $ entries ++ [ent]
+                   newEntriesUnsorted
       indWithNewEntries =
         ind { numEntriesOf = newNEntries, entriesOf = newEntries }
   in
    updateChecksum indWithNewEntries
 
 makeEntry :: GitObject a => FilePath -> a -> IO Entry
-makeEntry fp obj = do
-  fileStatus <- getFileStatus fp
+makeEntry fpRelToRepo obj = do
+  repoRootDir <- getRepoRootDir
+  fileStatus <- getFileStatus (repoRootDir </> fpRelToRepo)
   let mode = Mode { objTypeOf = if isSymbolicLink fileStatus
                                 then Symlink
                                 else File
@@ -250,7 +252,7 @@ makeEntry fp obj = do
   let flags = Flags { assumeValidOf = False
                     , extendedOf = False
                     , stageOf = 0
-                    , nameLenOf = length fp
+                    , nameLenOf = length fpRelToRepo
                     , reservedOf = Nothing
                     , skipWorktreeOf = Nothing
                     , intentToAddOf = Nothing}
@@ -264,7 +266,7 @@ makeEntry fp obj = do
                , fileSizeOf = fromEnum $ fileSize fileStatus
                , shaOf = sha obj
                , flagsOf = flags
-               , entryPathOf = fp }
+               , entryPathOf = fpRelToRepo }
 -- tests
 
 prop_indRT :: Index -> Bool
@@ -301,7 +303,6 @@ makeV3Flags first second =
   in v2 { reservedOf = Just reserved
         , skipWorktreeOf = Just skipWorktree
         , intentToAddOf = Just intentToAdd }
-
 
 writeFlags :: Flags -> BS.ByteString
 writeFlags (Flags assumeValid extended stage nameLen Nothing Nothing Nothing) =

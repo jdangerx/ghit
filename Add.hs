@@ -20,51 +20,56 @@ writeObj obj =
       (h, t) = BS.splitAt 1 sha'
       hashPath = toHexes h </> toHexes t
   in do
-    gitDirMaybe <- getGitDirectory
-    unless (isNothing gitDirMaybe) $ do
-      let filePath = fromJust gitDirMaybe </> "objects" </> hashPath
-      alreadyThere <- doesFileExist filePath
-      if not alreadyThere
-        then do createDirectoryIfMissing True (takeDirectory filePath)
-                print $ "writing to " ++ filePath
-                BL.writeFile filePath $ compressed obj
-        else print ("object file already exists, skipping :)" :: String)
+    gitDir <- getGitDirectory
+    let filePath = gitDir </> "objects" </> hashPath
+    alreadyThere <- doesFileExist filePath
+    if not alreadyThere
+      then do createDirectoryIfMissing True (takeDirectory filePath)
+              print $ "writing to " ++ filePath
+              BL.writeFile filePath $ compressed obj
+      else print ("object file already exists, skipping :)" :: String)
 
 add :: FilePath -> IO ()
 add fp = do
-  gitDirMaybe <- getGitDirectory
-  unless (isNothing gitDirMaybe) $ do
-    let indexPath = fromJust gitDirMaybe </> "index"
-    indexExists <- doesFileExist indexPath
-    ind' <- if indexExists
-            then liftM (A.parseOnly index) (BS.readFile indexPath)
-            else return $ Right emptyIndex
-    case ind' of
-     Left err -> error $ "index parse failed: " ++ err
-     Right ind -> do isFile <- doesFileExist fp
-                     isDir <- doesDirectoryExist fp
-                     unless (isFile || isDir) $ fail "File does not exist!"
-                     if isFile
-                       then do newInd <- addBlob ind fp
-                               -- print ("updating index with blob" :: String)
-                               BS.writeFile indexPath (writeIndex newInd)
-                       else do newInd <- join $ foldM addBlob ind <$> getFilesInDir fp
-                               BS.writeFile indexPath (writeIndex newInd)
+  gitDir <- getGitDirectory
+  let indexPath = gitDir </> "index"
+  indexExists <- doesFileExist indexPath
+  ind' <- if indexExists
+          then liftM (A.parseOnly index) (BS.readFile indexPath)
+          else return $ Right emptyIndex
+  case ind' of
+   Left err -> error $ "index parse failed: " ++ err
+   Right ind -> do isFile <- doesFileExist fp
+                   isDir <- doesDirectoryExist fp
+                   unless (isFile || isDir) $ fail "File does not exist!"
+                   if isFile
+                     then do newInd <- addBlob ind fp
+                             BS.writeFile indexPath (writeIndex newInd)
+                     else do newInd <- join $ foldM addBlob ind <$> getFilesInDir fp
+                             BS.writeFile indexPath (writeIndex newInd)
 
 addBlob :: Index -> FilePath -> IO Index
-addBlob ind fp = do
-  blob <- makeBlob fp
+addBlob ind fpRelToRepo = do
+  repoRootDir <- getRepoRootDir
+  blob <- makeBlob (repoRootDir </> fpRelToRepo)
   writeObj blob
-  updateIndex ind fp blob
+  updateIndex ind fpRelToRepo blob
 
+-- (a -> m b) -> m [a] -> m [b]
 getFilesInDir :: FilePath -> IO [FilePath]
 getFilesInDir dir = do
-  ls <- map (dir </>) <$> filter (/= ".git") <$> getDirectoryContents dir
+  ls <- map (dir </>) <$> (filter (/= ".git") <$> getDirectoryContents dir)
   -- YOU ARE NOT YOUR OWN SUBDIR NOW STOP IT
-  subdirs <- filter ((`notElem` [".", ".."]) . takeFileName)
-             <$> filterM doesDirectoryExist ls
-  files <- filterM doesFileExist ls
-  subDirFiles <- concat <$> mapM getFilesInDir subdirs
-  mapM makeAbsolute (files ++ subDirFiles)
-  
-  
+  subDirsRel <- filter ((`notElem` [".", ".."]) . takeFileName)
+                <$> filterM doesDirectoryExist ls
+  print subDirsRel
+  subDirs <- mapM canonicalizePath subDirsRel
+  print subDirs
+  files <- filterM doesFileExist ls >>= mapM canonicalizePath
+  print files
+  subDirFiles <- concat <$> mapM getFilesInDir subDirs
+  print subDirFiles
+  repoRootDir <- getRepoRootDir
+  return $ makeRelative repoRootDir <$> (files ++ subDirFiles)
+
+
