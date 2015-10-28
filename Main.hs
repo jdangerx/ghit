@@ -6,6 +6,7 @@ import System.Environment
 import Add
 import Index
 import Object
+import Commit
 import Utils
 
 main :: IO ()
@@ -15,3 +16,4 @@ main = do
   when (cmd == "find-git") $ getGitDirectory >>= print
   when (cmd == "add") $ add file
   when (cmd == "show-index") $ showIndex file
+  when (cmd == "write-tree") $ writeTree

@@ -71,23 +71,12 @@ instance QC.Arbitrary Entry where
     let flags = flagsBadNameLen {nameLenOf = length entryPath}
     return $ Entry ctime mtime device ino mode uid gid fileSize' sha' flags entryPath
 
-data Extension = Link { sharedIndexOf :: BS.ByteString
-                      , deleteBitMapOf :: BS.ByteString
-                      , replaceBitMapOf :: BS.ByteString }
-               | CachedTree { pathOf :: BS.ByteString
-                            , numEntriesInCachedTree :: Int
-                            , numSubtreesOf :: Int
-                            , objNameOf :: BS.ByteString }
-               | Ext { signatureOf :: BS.ByteString
+data Extension = Ext { signatureOf :: BS.ByteString
                      , extContentOf :: BS.ByteString }
                  deriving (Eq, Show)
 
 instance QC.Arbitrary Extension where
   arbitrary = Ext <$> QC.elements ["TREE", "REUC", "link", "UNTR"] <*> (BSC.pack <$> QC.arbitrary)
-
--- instance Show Entry where
-  -- show (Entry {shaOf = sha', entryPathOf = entryPath}) =
-    -- show sha' ++ ", " ++ show entryPath
 
 data Mode = Mode { objTypeOf :: ObjType
                  , permissionOf :: Permission }
@@ -162,19 +151,6 @@ entry version =
      A.take numBytesPadding
      return $ Entry ctime mtime device ino mode uid gid fileSize' sha' flags entryPath
 
--- cachedTree :: A.Parser Extension
--- cachedTree = do
-  -- A.string "TREE"
-  -- parse32Bit
-  -- path <- A.takeTill (== 0)
-  -- A.word8 0
-  -- numEntries <- asciiToInt <$> A.takeWhile1 digit
-  -- A.word8 32
-  -- numSubtrees <- asciiToInt <$> A.takeWhile1 digit
-  -- A.word8 10
-  -- objName <- A.take 20
-  -- return $ CachedTree path numEntries numSubtrees objName
-
 otherExtensions :: A.Parser Extension
 otherExtensions = do
   signature <- A.choice $ A.string <$> ["TREE", "REUC", "link", "UNTR"]
@@ -226,6 +202,11 @@ writeExtension (Ext sig cont) =
 updateIndex :: GitObject a => Index -> FilePath -> a -> IO Index
 updateIndex ind fp obj =
   addEntry ind <$> makeEntry fp obj
+
+readIndex :: IO (Either String Index)
+readIndex =
+  liftM (A.parseOnly index) $ liftM (</> "index") getGitDirectory >>= BS.readFile
+
 
 addEntry :: Index -> Entry -> Index
 addEntry ind@(Index {numEntriesOf = numEntries, entriesOf = entries}) ent =
