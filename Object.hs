@@ -83,9 +83,9 @@ instance GitObject Tree where
     where
       treeEntry :: A.Parser TreeEntry
       treeEntry = do
-        perms <- A.takeWhile1 digit A.<?> "perms"
-        fp <- A.word8 32 *> A.takeTill (== 0) <* A.word8 0 A.<?> "filepath"
-        sha' <- A.take 20 A.<?> "sha"
+        perms <- A.takeWhile1 digit
+        fp <- A.word8 32 *> A.takeTill (== 0) <* A.word8 0
+        sha' <- A.take 20
         return $ TreeEntry perms (BSC.unpack fp) (SHA1 sha')
 
 instance Arbitrary SHA1 where
@@ -107,10 +107,6 @@ instance Arbitrary Tree where
 serEntry :: TreeEntry -> BS.ByteString
 serEntry (TreeEntry perms fp (SHA1 shaBS)) =
   BS.concat [perms, " ", BSC.pack fp, "\0", shaBS]
-
-
-makeTree :: FilePath -> IO Tree
-makeTree = error "not implemented yet"
 
 makeBlob:: FilePath -> IO Blob
 makeBlob fp = do
