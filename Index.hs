@@ -27,6 +27,9 @@ data Index = Index { versionOf :: Int
   }
            deriving (Eq, Show)
 
+emptyIndex :: Index
+emptyIndex = updateChecksum $ Index 2 0 [] [] (SHA1 "")
+
 instance QC.Arbitrary Index where
   arbitrary = do
     -- version <- QC.choose (2, 4)
@@ -35,7 +38,8 @@ instance QC.Arbitrary Index where
     entries <- QC.vectorOf numEntries QC.arbitrary
     let extensions = []
     checksum <- QC.arbitrary
-    return $ Index version numEntries entries extensions checksum
+    return . updateChecksum
+      $ Index version numEntries entries extensions checksum
 
 data Entry = Entry { ctimeOf :: Int
                    , mtimeOf :: Int
@@ -120,15 +124,16 @@ instance QC.Arbitrary Flags where
 -- Parsers
 index :: A.Parser Index
 index = do
+  fullContent <- lookAhead A.takeByteString
   A.string "DIRC"
-  -- fullContent <- lookAhead A.takeByteString
-  -- let noChecksum = BS.take (BS.length fullContent - 20) fullContent
+  let noChecksum = BS.take (BS.length fullContent - 20) fullContent
   version <- parse32Bit
   numEntries <- parse32Bit
   entries <- A.count numEntries $ entry version
   exts <- A.many' extension
   checksum <- SHA1 <$> A.take 20
-  -- when (hash noChecksum /= checksum)
+  when (SHA1 (hash noChecksum) /= checksum)
+    $ fail ("checksum for index failed, content was: " ++ BSC.unpack noChecksum)
   return $ Index version numEntries entries exts checksum
 
 entry :: Int -> A.Parser Entry
@@ -342,6 +347,12 @@ writeMode (Mode objType perms) =
   in
    pack32BitInt $ typeBits `shift` 12 + permBits
 
+updateChecksum :: Index -> Index
+updateChecksum ind =
+  let oldBS = writeIndex ind
+      noChecksum = BS.take (BS.length oldBS - 20) oldBS
+      newChecksum = hash noChecksum
+  in ind {checksumOf = SHA1 newChecksum}
 
 billion :: Int
 billion = 10 ^ (9 :: Int)
