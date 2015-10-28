@@ -65,7 +65,8 @@ updateIndex ind fp obj =
 addEntry :: Index -> Entry -> Index
 addEntry ind@(Index {numEntriesOf = numEntries, entriesOf = entries}) ent =
   let newNEntries = numEntries + 1
-      newEntries = sortOn entryPathOf $ entries ++ [ent]
+      newEntries = sortOn (\e -> entryPathOf e ++ show (stageOf (flagsOf e)))
+                   $ entries ++ [ent]
       indWithNewEntries =
         ind { numEntriesOf = newNEntries, entriesOf = newEntries }
       indWithOldChecksum = writeIndex indWithNewEntries
