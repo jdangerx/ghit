@@ -45,14 +45,26 @@ add fp = do
                      isDir <- doesDirectoryExist fp
                      unless (isFile || isDir) $ fail "File does not exist!"
                      if isFile
-                       then do blob <- makeBlob fp
-                               newInd <- updateIndex ind fp blob
-                               print ("updating index with blob" :: String)
+                       then do newInd <- addBlob ind fp
+                               -- print ("updating index with blob" :: String)
                                BS.writeFile indexPath (writeIndex newInd)
-                               writeObj blob
-                       else do tree <- makeTree fp
-                               print ("updating index with tree" :: String)
-                               newInd <- updateIndex ind fp tree
+                       else do newInd <- join $ foldM addBlob ind <$> getFilesInDir fp
                                BS.writeFile indexPath (writeIndex newInd)
-                               writeObj tree
 
+addBlob :: Index -> FilePath -> IO Index
+addBlob ind fp = do
+  blob <- makeBlob fp
+  writeObj blob
+  updateIndex ind fp blob
+
+getFilesInDir :: FilePath -> IO [FilePath]
+getFilesInDir dir = do
+  ls <- map (dir </>) <$> filter (/= ".git") <$> getDirectoryContents dir
+  -- YOU ARE NOT YOUR OWN SUBDIR NOW STOP IT
+  subdirs <- filter ((`notElem` [".", ".."]) . takeFileName)
+             <$> filterM doesDirectoryExist ls
+  files <- filterM doesFileExist ls
+  subDirFiles <- concat <$> mapM getFilesInDir subdirs
+  mapM makeAbsolute (files ++ subDirFiles)
+  
+  
