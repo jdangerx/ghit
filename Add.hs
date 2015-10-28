@@ -35,8 +35,10 @@ add fp = do
   gitDirMaybe <- getGitDirectory
   unless (isNothing gitDirMaybe) $ do
     let indexPath = fromJust gitDirMaybe </> "index"
-    indFileCont <- BS.readFile indexPath
-    let ind' = A.parseOnly index indFileCont
+    indexExists <- doesFileExist indexPath
+    ind' <- if indexExists
+            then liftM (A.parseOnly index) (BS.readFile indexPath)
+            else return $ Right emptyIndex
     case ind' of
      Left err -> error $ "index parse failed: " ++ err
      Right ind -> do isFile <- doesFileExist fp
