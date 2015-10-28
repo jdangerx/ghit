@@ -13,21 +13,6 @@ import Index
 import Object
 import Utils
 
-writeObj :: GitObject a => a -> IO ()
-writeObj obj =
-  let SHA1 sha' = sha obj
-      (h, t) = BS.splitAt 1 sha'
-      hashPath = toHexes h </> toHexes t
-  in do
-    gitDir <- getGitDirectory
-    let filePath = gitDir </> "objects" </> hashPath
-    alreadyThere <- doesFileExist filePath
-    if not alreadyThere
-      then do createDirectoryIfMissing True (takeDirectory filePath)
-              print $ "writing to " ++ filePath
-              BL.writeFile filePath $ compressed obj
-      else print ("object file already exists, skipping :)" :: String)
-
 add :: FilePath -> IO ()
 add fp = do
   gitDir <- getGitDirectory
@@ -50,22 +35,17 @@ add fp = do
 addBlob :: Index -> FilePath -> IO Index
 addBlob ind fpRelToRepo = do
   repoRootDir <- getRepoRootDir
-  blob <- makeBlob (repoRootDir </> fpRelToRepo)
-  writeObj blob
+  blob <- mkBlobFromFile (repoRootDir </> fpRelToRepo)
+  write blob
   updateIndex ind fpRelToRepo blob
 
 getFilesInDir :: FilePath -> IO [FilePath]
 getFilesInDir dir = do
   ls <- map (dir </>) <$> (filter (/= ".git") <$> getDirectoryContents dir)
-  -- YOU ARE NOT YOUR OWN SUBDIR NOW STOP IT
   subDirsRel <- filter ((`notElem` [".", ".."]) . takeFileName)
                 <$> filterM doesDirectoryExist ls
-  print subDirsRel
   subDirs <- mapM canonicalizePath subDirsRel
-  print subDirs
   files <- filterM doesFileExist ls >>= mapM canonicalizePath
-  print files
   subDirFiles <- concat <$> mapM getFilesInDir subDirs
-  print subDirFiles
   repoRootDir <- getRepoRootDir
   return $ makeRelative repoRootDir <$> (files ++ subDirFiles)
