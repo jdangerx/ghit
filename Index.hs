@@ -1,13 +1,18 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Index where
 
+import Control.Monad
 import Data.Bits ((.&.), shift, testBit, bit)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.ByteString.Lazy as BL
+import Data.List (sortOn)
+
+import Crypto.Hash.SHA1 (hash)
 import qualified Data.Attoparsec.ByteString as A
 import Data.Attoparsec.Combinator (lookAhead)
 import qualified Test.QuickCheck as QC
+import System.Posix.Files
 
 import Object
 import Utils
@@ -55,12 +60,12 @@ instance QC.Arbitrary Entry where
     mode <- QC.arbitrary
     uid <- QC.arbitrary `QC.suchThat` (> 0)
     gid <- QC.arbitrary `QC.suchThat` (> 0)
-    fileSize <- QC.arbitrary `QC.suchThat` (> 0)
+    fileSize' <- QC.arbitrary `QC.suchThat` (> 0)
     sha' <- QC.arbitrary
     flagsBadNameLen <- QC.arbitrary
     entryPath <- QC.arbitrary `QC.suchThat` (\s -> not (null s) && '\0' `notElem` s)
     let flags = flagsBadNameLen {nameLenOf = length entryPath}
-    return $ Entry ctime mtime device ino mode uid gid fileSize sha' flags entryPath
+    return $ Entry ctime mtime device ino mode uid gid fileSize' sha' flags entryPath
 
 data Extension = Link { sharedIndexOf :: BS.ByteString
                       , deleteBitMapOf :: BS.ByteString
@@ -138,7 +143,7 @@ entry version =
      mode <- getMode <$> parse32Bit -- 28 bytes
      uid <- parse32Bit -- 32
      gid <- parse32Bit -- 36
-     fileSize <- parse32Bit -- 40
+     fileSize' <- parse32Bit -- 40
      sha' <- SHA1 <$> A.take 20 -- 60
      flags <- if version == 2
               then makeV2Flags <$> parse16Bit -- 62, or...
@@ -146,11 +151,11 @@ entry version =
                       return $ makeV3Flags first second
      entryPath <- BSC.unpack <$> A.take (nameLenOf flags) -- 62 or 64 + nameLen + 1 (for NUL termination)
      let numBytesPadding = case version of
-                            2 -> (8 - (62 + nameLenOf flags) `mod` 8)
-                            3 -> (8 - (64 + nameLenOf flags) `mod` 8)
+                            2 -> 8 - (62 + nameLenOf flags) `mod` 8
+                            3 -> 8 - (64 + nameLenOf flags) `mod` 8
                             4 -> 0
      A.take numBytesPadding
-     return $ Entry ctime mtime device ino mode uid gid fileSize sha' flags entryPath
+     return $ Entry ctime mtime device ino mode uid gid fileSize' sha' flags entryPath
 
 -- cachedTree :: A.Parser Extension
 -- cachedTree = do
@@ -189,7 +194,7 @@ writeIndex (Index version numEntries entries exts (SHA1 sha')) =
 
 writeEntry :: Entry -> BS.ByteString
 writeEntry (Entry
-            ctime mtime device ino mode uid gid fileSize (SHA1 sha') flags
+            ctime mtime device ino mode uid gid fileSize' (SHA1 sha') flags
             entryPath) =
   let unpadded = BS.concat [ pack32BitInt $ ctime `shift` (-32)
                            , pack32BitInt ctime
@@ -200,7 +205,7 @@ writeEntry (Entry
                            , writeMode mode
                            , pack32BitInt uid
                            , pack32BitInt gid
-                           , pack32BitInt fileSize
+                           , pack32BitInt fileSize'
                            , sha'
                            , writeFlags flags
                            , BSC.pack entryPath ]
@@ -211,6 +216,50 @@ writeExtension :: Extension -> BS.ByteString
 writeExtension (Ext sig cont) =
   BS.concat [sig, pack32BitInt (BS.length cont), cont]
 
+
+-- edit index
+updateIndex :: GitObject a => Index -> FilePath -> a -> IO Index
+updateIndex ind fp obj =
+  addEntry ind <$> makeEntry fp obj
+
+addEntry :: Index -> Entry -> Index
+addEntry ind@(Index {numEntriesOf = numEntries, entriesOf = entries}) ent =
+  let newNEntries = numEntries + 1
+      newEntries = sortOn (\e -> entryPathOf e ++ show (stageOf (flagsOf e)))
+                   $ entries ++ [ent]
+      indWithNewEntries =
+        ind { numEntriesOf = newNEntries, entriesOf = newEntries }
+  in
+   updateChecksum indWithNewEntries
+
+makeEntry :: GitObject a => FilePath -> a -> IO Entry
+makeEntry fp obj = do
+  fileStatus <- getFileStatus fp
+  let mode = Mode { objTypeOf = if isSymbolicLink fileStatus
+                                then Symlink
+                                else File
+                  , permissionOf = if fileMode fileStatus == ownerExecuteMode
+                                   then P755
+                                   else P644
+        }
+  let flags = Flags { assumeValidOf = False
+                    , extendedOf = False
+                    , stageOf = 0
+                    , nameLenOf = length fp
+                    , reservedOf = Nothing
+                    , skipWorktreeOf = Nothing
+                    , intentToAddOf = Nothing}
+  return Entry { ctimeOf = fromEnum $ statusChangeTimeHiRes fileStatus
+               , mtimeOf = fromEnum $ modificationTimeHiRes fileStatus
+               , deviceOf = fromEnum $ deviceID fileStatus
+               , inoOf = fromEnum $ fileID fileStatus
+               , modeOf = mode
+               , uidOf = fromEnum $ fileOwner fileStatus
+               , gidOf = fromEnum $ fileGroup fileStatus
+               , fileSizeOf = fromEnum $ fileSize fileStatus
+               , shaOf = sha obj
+               , flagsOf = flags
+               , entryPathOf = fp }
 -- tests
 
 prop_indRT :: Index -> Bool

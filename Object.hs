@@ -108,6 +108,17 @@ serEntry :: TreeEntry -> BS.ByteString
 serEntry (TreeEntry perms fp (SHA1 shaBS)) =
   BS.concat [perms, " ", BSC.pack fp, "\0", shaBS]
 
+
+makeTree :: FilePath -> IO Tree
+makeTree = error "not implemented yet"
+
+makeBlob:: FilePath -> IO Blob
+makeBlob fp = do
+  cont <- BS.readFile fp
+  return $ Blob (BS.length cont) cont
+
+-- tests
+
 prop_blobRT :: Blob -> Bool
 prop_blobRT blob = Right blob == deserialize (serialize blob)
 
