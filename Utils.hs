@@ -1,13 +1,24 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Utils where
 
+import Control.Monad
 import qualified Data.Attoparsec.ByteString as A
 import qualified Data.ByteString as BS
-import qualified Data.ByteString.Char8 as BSC
 import Data.Char (intToDigit)
 import Data.Word (Word8)
+import System.Directory
 
 import Test.QuickCheck
+
+getGitDirectory :: IO (Maybe FilePath)
+getGitDirectory = do
+  cwd <- join $ makeAbsolute <$> getCurrentDirectory
+  gitDirIsHere <- doesDirectoryExist ".git" 
+  if gitDirIsHere
+    then Just <$> makeAbsolute ".git"
+    else if cwd == "/"
+         then return Nothing
+         else withCurrentDirectory ".." getGitDirectory
 
 digit :: Word8 -> Bool
 digit w = w >= 48 && w <= 57

@@ -5,11 +5,12 @@ import System.Environment
 
 import Object
 import Add
+import Utils
 
 main :: IO ()
 main = do
   [cmd, file] <- getArgs
   return ()
-  -- when (cmd == "show") $ showLooseObj file >>= print
+  when (cmd == "find-git") $ getGitDirectory >>= print
       
 
