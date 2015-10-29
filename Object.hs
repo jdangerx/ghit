@@ -6,6 +6,7 @@ import Control.Monad
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
+import qualified Data.Tree as T
 import Data.Word (Word8)
 import Numeric (readOct, showOct)
 import System.Directory
@@ -61,6 +62,10 @@ class GitObject a where
 
 newtype SHA1 = SHA1 BS.ByteString
                deriving (Eq, Show)
+               -- deriving Eq
+
+-- instance Show SHA1 where
+  -- show (SHA1 sha') = show $ toHexes sha'
 
 data Blob = Blob BS.ByteString
             deriving (Eq, Show)
@@ -74,31 +79,33 @@ instance GitObject Blob where
     content' <- A.take contLen'
     return $ Blob content'
 
-data Tree = Tree [TreeEntry]
-            deriving (Eq, Show)
+data GitTree = GitTree { treeOf :: T.Tree TreeEntry }
+               deriving (Eq, Show)
 
-data TreeEntry = TreeEntry FileMode FilePath SHA1
+data TreeEntry = TreeEntry FileMode FilePath SHA1 | Root
                  deriving (Eq, Show)
 
-instance GitObject Tree where
+instance GitObject GitTree where
   typeName _ = "tree"
-  contLen (Tree entries) = sum $ BS.length . serEntry <$> entries
-  content (Tree entries) =
-    BS.concat $ serEntry <$> entries
+  contLen = BS.length . content
+  content gitTree = BSC.concat
+                    $ map
+                    (\ (T.Node entry _) -> serEntry entry)
+                    . T.subForest . treeOf $ gitTree
 
   parser = do
     contLen' <- pContLen "tree"
     if contLen' == 0
-      then return $ Tree []
+      then return . GitTree $ T.Node Root []
       else do entries <- A.many' treeEntry
-              return $ Tree entries
+              return . GitTree $ T.Node Root entries
     where
-      treeEntry :: A.Parser TreeEntry
+      treeEntry :: A.Parser (T.Tree TreeEntry)
       treeEntry = do
         [(perms, "")] <- readOct . BSC.unpack <$> A.takeWhile1 digit
         fp <- A.word8 32 *> A.takeTill (== 0) <* A.word8 0
         sha' <- A.take 20
-        return $ TreeEntry perms (BSC.unpack fp) (SHA1 sha')
+        return $ T.Node (TreeEntry perms (BSC.unpack fp) (SHA1 sha')) []
 
 serEntry :: TreeEntry -> BS.ByteString
 serEntry (TreeEntry perms fp (SHA1 shaBS)) =
@@ -123,7 +130,7 @@ prop_blobGit blob =
     let SHA1 shaBS = sha blob
     return $  gitHashed == BSC.unpack shaBS
 
-prop_treeRT :: Tree -> Bool
+prop_treeRT :: GitTree -> Bool
 prop_treeRT tree = Right tree == deserialize (serialize tree)
 
 pContLen :: BS.ByteString -> A.Parser Int
@@ -139,12 +146,17 @@ instance Arbitrary SHA1 where
 
 instance Arbitrary TreeEntry where
   arbitrary = do
-    perms <- elements [16877, 33188]
+    perms <- elements [16384, 33188]
     fp <- arbitrary `suchThat` (\s -> length s > 3 && ('\0' `notElem` s))
     sha1 <- arbitrary
     return $ TreeEntry perms fp sha1
 
-instance Arbitrary Tree where
-  arbitrary = do
-    entries <- arbitrary :: Gen [TreeEntry]
-    return $ Tree entries
+instance Arbitrary GitTree where
+  arbitrary = GitTree <$> arbTree
+
+arbTree :: Gen (T.Tree TreeEntry)
+arbTree = do
+  ent <- arbitrary :: Gen TreeEntry
+  subForest <- oneof [ return []
+                     , listOf arbTree ]
+  return $ T.Node ent subForest
