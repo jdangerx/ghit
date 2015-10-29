@@ -13,6 +13,7 @@ import Data.Attoparsec.Combinator (lookAhead)
 import qualified Test.QuickCheck as QC
 import System.FilePath
 import System.Posix.Files
+import System.Posix.Types
 
 import Object
 import Utils
@@ -79,18 +80,14 @@ instance QC.Arbitrary Extension where
   arbitrary = Ext <$> QC.elements ["TREE", "REUC", "link", "UNTR"] <*> (BSC.pack <$> QC.arbitrary)
 
 data Mode = Mode { objTypeOf :: ObjType
-                 , permissionOf :: Permission }
+                 , permissionOf :: FileMode }
             deriving (Eq, Show)
 
 instance QC.Arbitrary Mode where
-  arbitrary = Mode <$> QC.elements [File, Symlink, Gitlink] <*> QC.arbitrary
+  arbitrary = Mode <$> QC.elements [File, Symlink, Gitlink]
+              <*> QC.elements [420, 493]
 
 data ObjType = File | Symlink | Gitlink deriving (Eq, Show)
-
-data Permission = P755 | P644
-                         deriving (Eq, Show)
-
-instance QC.Arbitrary Permission where arbitrary = QC.elements [P755, P644]
 
 data Flags = Flags { assumeValidOf :: Bool
                    , extendedOf :: Bool
@@ -197,7 +194,6 @@ writeExtension :: Extension -> BS.ByteString
 writeExtension (Ext sig cont) =
   BS.concat [sig, pack32BitInt (BS.length cont), cont]
 
-
 -- edit index
 updateIndex :: GitObject a => Index -> FilePath -> a -> IO Index
 updateIndex ind fp obj =
@@ -206,7 +202,6 @@ updateIndex ind fp obj =
 readIndex :: IO (Either String Index)
 readIndex =
   liftM (A.parseOnly index) $ liftM (</> "index") getGitDirectory >>= BS.readFile
-
 
 addEntry :: Index -> Entry -> Index
 addEntry ind@(Index {numEntriesOf = numEntries, entriesOf = entries}) ent =
@@ -226,9 +221,7 @@ makeEntry fpRelToRepo obj = do
   let mode = Mode { objTypeOf = if isSymbolicLink fileStatus
                                 then Symlink
                                 else File
-                  , permissionOf = if fileMode fileStatus == ownerExecuteMode
-                                   then P755
-                                   else P644
+                  , permissionOf = fileMode fileStatus .&. (2^9 - 1) -- first 9 bits
         }
   let flags = Flags { assumeValidOf = False
                     , extendedOf = False
@@ -307,14 +300,12 @@ writeFlags (Flags assumeValid extended stage nameLen
 getMode :: Int -> Mode
 getMode i =
   let typeBits = i `shift` (-12)
-      permBits = case i `mod` 1024 of
-                  493 -> P755
-                  420 -> P644
-                  _ -> error "Invalid permission bits."
+      permBits = fromIntegral $ i `mod` 1024
       objType = case typeBits of
                  8 -> File
                  10 -> Symlink
                  14 -> Gitlink
+                 err -> error $ "invalid type bits in mode: " ++ show err
   in Mode objType permBits
 
 writeMode :: Mode -> BS.ByteString
@@ -323,11 +314,8 @@ writeMode (Mode objType perms) =
                   File -> 8
                   Symlink -> 10
                   Gitlink -> 14
-      permBits = case perms of
-                  P755 -> 493
-                  P644 -> 420
   in
-   pack32BitInt $ typeBits `shift` 12 + permBits
+   pack32BitInt $ typeBits `shift` 12 + fromEnum perms
 
 updateChecksum :: Index -> Index
 updateChecksum ind =
