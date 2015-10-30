@@ -23,6 +23,9 @@ import Test.QuickCheck.Monadic
 
 import Utils
 
+data GitFileMode = NormalMode | ExecutableMode | DirMode
+                 deriving (Eq, Show)
+
 class GitObject a where
   typeName :: a -> BS.ByteString
   contLen :: a -> Int
@@ -82,7 +85,7 @@ instance GitObject Blob where
 data GitTree = GitTree { treeOf :: T.Tree TreeEntry }
                deriving (Eq, Show)
 
-data TreeEntry = TreeEntry FileMode FilePath SHA1 | Root
+data TreeEntry = TreeEntry GitFileMode FilePath SHA1 | Root
                  deriving (Eq, Show)
 
 instance GitObject GitTree where
@@ -102,14 +105,21 @@ instance GitObject GitTree where
     where
       treeEntry :: A.Parser (T.Tree TreeEntry)
       treeEntry = do
-        [(perms, "")] <- readOct . BSC.unpack <$> A.takeWhile1 digit
+        fmBS <- A.takeWhile1 digit
         fp <- A.word8 32 *> A.takeTill (== 0) <* A.word8 0
         sha' <- A.take 20
-        return $ T.Node (TreeEntry perms (BSC.unpack fp) (SHA1 sha')) []
+        let gitFM = case fmBS of
+                     "100644" -> NormalMode
+                     "100755" -> ExecutableMode
+                     "40000" -> DirMode
+        return $ T.Node (TreeEntry gitFM (BSC.unpack fp) (SHA1 sha')) []
 
 serEntry :: TreeEntry -> BS.ByteString
-serEntry (TreeEntry perms fp (SHA1 shaBS)) =
-  BS.concat [BSC.pack $ showOct perms "", " ", BSC.pack fp, "\0", shaBS]
+serEntry (TreeEntry gitFM fp (SHA1 shaBS)) =
+  let serGitFM ExecutableMode = "100755"
+      serGitFM NormalMode = "100644"
+      serGitFM DirMode = "40000"
+  in BS.concat [serGitFM gitFM, " ", BSC.pack fp, "\0", shaBS]
 
 mkBlobFromFile:: FilePath -> IO Blob
 mkBlobFromFile fp = liftM Blob $ BS.readFile fp
@@ -146,17 +156,26 @@ instance Arbitrary SHA1 where
 
 instance Arbitrary TreeEntry where
   arbitrary = do
-    perms <- elements [16384, 33188]
+    fm <- elements [DirMode, ExecutableMode, NormalMode]
     fp <- arbitrary `suchThat` (\s -> length s > 3 && ('\0' `notElem` s))
     sha1 <- arbitrary
-    return $ TreeEntry perms fp sha1
+    return $ TreeEntry fm fp sha1
 
 instance Arbitrary GitTree where
   arbitrary = GitTree <$> arbTree
 
+-- arbTreeOrLeaf :: Gen (T.Tree TreeEntry)
+-- arbTreeOrLeaf = do
+  -- ent <- arbitrary :: Gen TreeEntry
+  -- subForest <- listOf arbTreeOrLeaf
+  -- return $ T.Node ent subForest
+
+arbLeaf :: Gen (T.Tree TreeEntry)
+arbLeaf = do
+  ent <- arbitrary
+  return $ T.Node ent []
+
 arbTree :: Gen (T.Tree TreeEntry)
 arbTree = do
-  ent <- arbitrary :: Gen TreeEntry
-  subForest <- oneof [ return []
-                     , listOf arbTree ]
-  return $ T.Node ent subForest
+  subForest <- listOf1 arbLeaf
+  return $ T.Node Root subForest

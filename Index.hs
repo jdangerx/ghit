@@ -80,12 +80,12 @@ instance QC.Arbitrary Extension where
   arbitrary = Ext <$> QC.elements ["TREE", "REUC", "link", "UNTR"] <*> (BSC.pack <$> QC.arbitrary)
 
 data Mode = Mode { objTypeOf :: ObjType
-                 , permissionOf :: FileMode }
+                 , permissionOf :: GitFileMode }
             deriving (Eq, Show)
 
 instance QC.Arbitrary Mode where
   arbitrary = Mode <$> QC.elements [File, Symlink, Gitlink]
-              <*> QC.elements [420, 493]
+              <*> QC.elements [NormalMode, ExecutableMode]
 
 data ObjType = File | Symlink | Gitlink deriving (Eq, Show)
 
@@ -122,6 +122,22 @@ index = do
     $ fail ("checksum for index failed, content was: " ++ BSC.unpack noChecksum)
   return $ Index version numEntries entries exts checksum
 
+pMode :: A.Parser Mode
+pMode = do
+  modeInt <- parse32Bit
+  let typeBits = modeInt `shift` (-12)
+      permBits = modeInt `mod` 1024
+      objType = case typeBits of
+                 8 -> File
+                 10 -> Symlink
+                 14 -> Gitlink
+                 err -> error $ "invalid type bits in mode: " ++ show err
+      gitFM = case permBits of
+               420 -> NormalMode
+               493 -> ExecutableMode
+               _ -> error "Invalid file mode encountered!"
+  return $ Mode objType gitFM
+
 entry :: Int -> A.Parser Entry
 entry version =
   let toNs [s, ns] = s * billion + ns
@@ -131,7 +147,7 @@ entry version =
      mtime <- toNs <$> A.count 2 parse32Bit -- 16 bytes
      device <- parse32Bit -- 20 bytes
      ino <- parse32Bit -- 24 bytes
-     mode <- getMode <$> parse32Bit -- 28 bytes
+     mode <- pMode -- 28
      uid <- parse32Bit -- 32
      gid <- parse32Bit -- 36
      fileSize' <- parse32Bit -- 40
@@ -218,10 +234,13 @@ makeEntry :: GitObject a => FilePath -> a -> IO Entry
 makeEntry fpRelToRepo obj = do
   repoRootDir <- getRepoRootDir
   fileStatus <- getFileStatus (repoRootDir </> fpRelToRepo)
+  let gitFM = if fileMode fileStatus == ownerExecuteMode
+              then ExecutableMode
+              else NormalMode
   let mode = Mode { objTypeOf = if isSymbolicLink fileStatus
                                 then Symlink
                                 else File
-                  , permissionOf = fileMode fileStatus .&. (2^9 - 1) -- first 9 bits
+                  , permissionOf = gitFM
         }
   let flags = Flags { assumeValidOf = False
                     , extendedOf = False
@@ -297,25 +316,17 @@ writeFlags (Flags assumeValid extended stage nameLen
       second16 = reservedInt + skipWorktreeInt + intentToAddInt
   in pack32BitInt $ first16 `shift` 16 + second16
 
-getMode :: Int -> Mode
-getMode i =
-  let typeBits = i `shift` (-12)
-      permBits = fromIntegral $ i `mod` 1024
-      objType = case typeBits of
-                 8 -> File
-                 10 -> Symlink
-                 14 -> Gitlink
-                 err -> error $ "invalid type bits in mode: " ++ show err
-  in Mode objType permBits
-
 writeMode :: Mode -> BS.ByteString
-writeMode (Mode objType perms) =
+writeMode (Mode objType gitFM) =
   let typeBits = case objType of
                   File -> 8
                   Symlink -> 10
                   Gitlink -> 14
+      gitFMBits = case gitFM of
+                   NormalMode -> 420
+                   ExecutableMode -> 493
   in
-   pack32BitInt $ typeBits `shift` 12 + fromEnum perms
+   pack32BitInt $ typeBits `shift` 12 + gitFMBits
 
 updateChecksum :: Index -> Index
 updateChecksum ind =

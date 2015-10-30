@@ -43,7 +43,7 @@ mkTreeNode fp subs =
   let dirMap = toMap subs
       tree = dirMapToTree dirMap
       sha' = sha tree
-      treeEntry = TreeEntry 16384 fp sha'
+      treeEntry = TreeEntry DirMode fp sha'
   in T.Node treeEntry (T.subForest $ treeOf tree)
 
 getTopLevelPath :: Entry -> (Maybe FilePath, [Entry])
