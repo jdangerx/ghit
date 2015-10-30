@@ -61,7 +61,7 @@ class GitObject a where
         then do createDirectoryIfMissing True (takeDirectory filePath)
                 putStrLn $ toHexes sha'
                 BL.writeFile filePath $ compressed obj
-        else print ("object file already exists, skipping :)" :: String)
+        else print ("object file " ++ toHexes sha' ++ " already exists, skipping :)")
 
 newtype SHA1 = SHA1 BS.ByteString
                deriving (Eq, Show)
@@ -114,6 +114,13 @@ instance GitObject GitTree where
                      "40000" -> DirMode
         return $ T.Node (TreeEntry gitFM (BSC.unpack fp) (SHA1 sha')) []
 
+writeTreeRec :: GitTree -> IO ()
+writeTreeRec gitTree@(GitTree (T.Node _ children)) =
+  do
+    write gitTree
+    let childTrees = GitTree <$> filter (not . null . T.subForest) children
+    void . sequence $ map writeTreeRec childTrees
+
 serEntry :: TreeEntry -> BS.ByteString
 serEntry (TreeEntry gitFM fp (SHA1 shaBS)) =
   let serGitFM ExecutableMode = "100755"
@@ -162,20 +169,14 @@ instance Arbitrary TreeEntry where
     return $ TreeEntry fm fp sha1
 
 instance Arbitrary GitTree where
-  arbitrary = GitTree <$> arbTree
-
--- arbTreeOrLeaf :: Gen (T.Tree TreeEntry)
--- arbTreeOrLeaf = do
-  -- ent <- arbitrary :: Gen TreeEntry
-  -- subForest <- listOf arbTreeOrLeaf
-  -- return $ T.Node ent subForest
+  arbitrary = GitTree <$> arbTree1Deep
 
 arbLeaf :: Gen (T.Tree TreeEntry)
 arbLeaf = do
   ent <- arbitrary
   return $ T.Node ent []
 
-arbTree :: Gen (T.Tree TreeEntry)
-arbTree = do
+arbTree1Deep :: Gen (T.Tree TreeEntry)
+arbTree1Deep = do
   subForest <- listOf1 arbLeaf
   return $ T.Node Root subForest

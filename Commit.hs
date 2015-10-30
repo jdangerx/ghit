@@ -59,4 +59,4 @@ writeTree :: IO ()
 writeTree = readIndex
              -- >>= either print (putStrLn . T.drawTree . (show <$>) . treeOf . makeTreeFromIndex)
              >>= either print
-             (BL.putStr . compressed . makeTreeFromIndex)
+             (writeTreeRec . makeTreeFromIndex)
