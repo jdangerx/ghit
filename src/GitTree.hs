@@ -20,7 +20,6 @@ data TreeEntry = TreeEntry GitFileMode FilePath SHA1 | Root
 
 instance GitObject GitTree where
   typeName _ = "tree"
-  contLen = BS.length . content
   content gitTree = BSC.concat
                     $ map
                     (\ (T.Node entry _) -> serEntry entry)

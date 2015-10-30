@@ -19,9 +19,11 @@ data GitFileMode = NormalMode | ExecutableMode | DirMode
 
 class GitObject a where
   typeName :: a -> BS.ByteString
-  contLen :: a -> Int
   content :: a -> BS.ByteString
   parser :: A.Parser a
+
+  contLen :: a -> Int
+  contLen = BS.length . content
 
   serialize :: a -> BS.ByteString
   serialize obj =

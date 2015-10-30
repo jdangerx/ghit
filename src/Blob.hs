@@ -21,7 +21,6 @@ data Blob = Blob BS.ByteString
 
 instance GitObject Blob where
   typeName _ = "blob"
-  contLen (Blob content') = BS.length content'
   content (Blob content') = content'
   parser = do
     contLen' <- pContLen "blob"
