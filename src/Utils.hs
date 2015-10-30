@@ -4,7 +4,7 @@ module Utils where
 import Control.Monad
 import qualified Data.Attoparsec.ByteString as A
 import qualified Data.ByteString as BS
-import Data.Char (intToDigit)
+import Data.Char (intToDigit, digitToInt)
 import Data.Word (Word8)
 import System.Directory
 import System.FilePath
@@ -13,6 +13,16 @@ import Test.QuickCheck
 
 newtype SHA1 = SHA1 BS.ByteString
                deriving (Eq, Show)
+
+fromHex :: String -> SHA1
+fromHex s =
+  let fromHex' [] = []
+      fromHex' (a:b:bs) =
+        fromIntegral (digitToInt a * 16 + digitToInt b) : fromHex' bs
+  in SHA1 (BS.pack $ fromHex' s)
+
+hexSha :: SHA1 -> String
+hexSha (SHA1 s) = toHexes s
 
 instance Arbitrary SHA1 where
   arbitrary = SHA1 . BS.pack <$> vectorOf 20 (choose (0, 255) :: Gen Word8)
