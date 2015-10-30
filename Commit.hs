@@ -3,7 +3,8 @@ module Commit where
 
 import qualified Data.Map as M
 import qualified Data.Tree as T
--- import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BSC
+import qualified Data.ByteString.Lazy as BL
 import System.FilePath
 
 import Test.QuickCheck
@@ -56,4 +57,6 @@ getTopLevelPath e@(Entry { entryPathOf = path }) =
 
 writeTree :: IO ()
 writeTree = readIndex
-             >>= either print (putStrLn . T.drawTree . (show <$>) . treeOf . makeTreeFromIndex)
+             -- >>= either print (putStrLn . T.drawTree . (show <$>) . treeOf . makeTreeFromIndex)
+             >>= either print
+             (BL.putStr . compressed . makeTreeFromIndex)
