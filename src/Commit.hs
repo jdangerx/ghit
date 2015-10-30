@@ -3,23 +3,14 @@ module Commit where
 
 import qualified Data.Map as M
 import qualified Data.Tree as T
-import qualified Data.ByteString.Char8 as BSC
-import qualified Data.ByteString.Lazy as BL
 import System.FilePath
 
-import Test.QuickCheck
-import Test.QuickCheck.Monadic
-
 import Index
-import Object
-import Utils
+import GitTree
 
-makeTreeFromIndex :: Index -> GitTree
-makeTreeFromIndex (Index { entriesOf = entries }) =
-  indexEntriesToTree entries
-
-indexEntriesToTree :: [Entry] -> GitTree
-indexEntriesToTree = dirMapToTree . toMap
+mkTreeFromIndex :: Index -> GitTree
+mkTreeFromIndex (Index { entriesOf = entries }) =
+  dirMapToTree . mkDirMap $ entries
 
 dirMapToTree :: M.Map (Maybe FilePath) [Entry] -> GitTree
 dirMapToTree dirMap =
@@ -31,8 +22,8 @@ pairToForest :: Maybe FilePath -> [Entry] -> T.Forest TreeEntry
 pairToForest Nothing blobs = mkBlobNode <$> blobs
 pairToForest (Just dirName) subs = [mkTreeNode dirName subs]
 
-toMap :: [Entry] -> M.Map (Maybe FilePath) [Entry]
-toMap = M.fromListWith (++) . map getTopLevelPath
+mkDirMap :: [Entry] -> M.Map (Maybe FilePath) [Entry]
+mkDirMap = M.fromListWith (++) . map getTopLevelPath
 
 mkBlobNode :: Entry -> T.Tree TreeEntry
 mkBlobNode Entry { modeOf = (Mode _ fm), shaOf = sha', entryPathOf = fp } =
@@ -41,7 +32,7 @@ mkBlobNode Entry { modeOf = (Mode _ fm), shaOf = sha', entryPathOf = fp } =
 
 mkTreeNode :: FilePath -> [Entry] -> T.Tree TreeEntry
 mkTreeNode fp subs =
-  let dirMap = toMap subs
+  let dirMap = mkDirMap subs
       tree = dirMapToTree dirMap
       sha' = sha tree
       treeEntry = TreeEntry DirMode fp sha'
@@ -57,6 +48,6 @@ getTopLevelPath e@(Entry { entryPathOf = path }) =
 
 writeTree :: IO ()
 writeTree = readIndex
-             -- >>= either print (putStrLn . T.drawTree . (show <$>) . treeOf . makeTreeFromIndex)
+             -- >>= either print (putStrLn . T.drawTree . (show <$>) . treeOf . mkTreeFromIndex)
              >>= either print
-             (writeTreeRec . makeTreeFromIndex)
+             (writeTreeRec . mkTreeFromIndex)

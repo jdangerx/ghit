@@ -3,14 +3,13 @@ module Add where
 
 import Control.Monad
 import qualified Data.ByteString as BS
-import qualified Data.ByteString.Lazy as BL
 import System.Directory
 import System.FilePath
 
 import qualified Data.Attoparsec.ByteString as A
 
 import Index
-import Object
+import Blob
 import Utils
 
 add :: FilePath -> IO ()

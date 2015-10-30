@@ -11,6 +11,12 @@ import System.FilePath
 
 import Test.QuickCheck
 
+newtype SHA1 = SHA1 BS.ByteString
+               deriving (Eq, Show)
+
+instance Arbitrary SHA1 where
+  arbitrary = SHA1 . BS.pack <$> vectorOf 20 (choose (0, 255) :: Gen Word8)
+
 getGitDirectory :: IO FilePath
 getGitDirectory = do
   cwd <- join $ makeAbsolute <$> getCurrentDirectory

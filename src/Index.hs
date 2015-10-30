@@ -1,5 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
-module Index where
+module Index
+       ( module Index
+       , module Object
+  ) where
 
 import Control.Monad
 import Data.Bits ((.&.), shift, testBit, bit)
