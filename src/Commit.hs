@@ -1,20 +1,28 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Commit
        ( writeTree
+       -- , commitTree
+       -- , commit
        , Commit
+       , gitTreeOf
+       , parentsOf
+       , authorOf
+       , committerOf
+       , msgOf
        , module Object
   ) where
 
 import Control.Monad
-import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.Map as M
 import Data.Maybe (fromJust, isNothing)
 import qualified Data.Tree as T
 import qualified Data.Time as Time
+import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import System.FilePath
 
 import qualified Data.Attoparsec.ByteString as A
+import Test.QuickCheck
 
 import GitTree
 import Index
@@ -26,8 +34,11 @@ data Commit = Commit { gitTreeOf :: SHA1
                      , authorOf :: PersonInfo
                      , committerOf :: PersonInfo
                      , msgOf :: String }
+              deriving (Eq, Show)
 
-data PersonInfo = PersonInfo Name Email Time.UTCTime
+data PersonInfo = PersonInfo Name Email Time.UTCTime deriving (Eq, Show)
+type Name = String
+type Email = String
 
 serializePersonInfo :: PersonInfo -> String
 serializePersonInfo (PersonInfo name email time) =
@@ -40,20 +51,23 @@ instance GitObject Commit where
     let
       treeS = "tree " ++ hexSha treeSha
       parentLines = ("parent " ++) . hexSha <$> parents
-      authorS = "author" ++ serializePersonInfo author
-      committerS = "committer" ++ serializePersonInfo committer
+      authorS = "author " ++ serializePersonInfo author
+      committerS = "committer " ++ serializePersonInfo committer
       msgS = "\n" ++ msg
     in
       BSC.pack . unlines $ treeS : parentLines ++ [authorS, committerS, msgS]
   parser = do
     pContLen "commit"
-    A.string "tree "
     tree <- pTree
     parents <- A.choice [ A.many1 pParent , return [] ]
-    author <- A.string "author " *> pPersonInfo
-    committer <- A.string "committer " *> pPersonInfo
-    msg <- BSC.unpack <$> A.takeByteString
+    author <- (A.string "author " A.<?> "author tag")*> pPersonInfo
+    committer <- (A.string "committer " A.<?> "committer tag") *> pPersonInfo
+    msg <- stripUpTo1 . BSC.unpack <$> A.takeByteString
     return $ Commit tree parents author committer msg
+    where
+      dropLeadingNewline ('\n' : xs) = xs
+      dropLeadingNewline s = s
+      stripUpTo1 =reverse . dropLeadingNewline . reverse . dropLeadingNewline
 
 pTree :: A.Parser SHA1
 pTree = fromHex . BSC.unpack <$> (A.string "tree " *> A.take 40 <* A.word8 10)
@@ -66,20 +80,38 @@ pPersonInfo =
   let strip = unwords . words
   in
    do
-     name <- strip . BSC.unpack <$> A.takeTill (== 60) -- ord '<' == 60
-     A.string " <"
-     email <- strip . BSC.unpack <$> A.takeTill (== 62) -- ord '>' == 62
-     timeBS <- A.takeTill (== 10)
+     -- ord '<' == 60
+     name <- strip . BSC.unpack <$> A.takeTill (== 60) <* A.word8 60
+     -- ord '>' == 62
+     email <- strip . BSC.unpack <$> A.takeTill (== 62) <* A.word8 62
+     timeBS <- A.takeTill (== 10) <* A.word8 10
      let time =
            Time.parseTimeM True Time.defaultTimeLocale "%s %z"
            $ BSC.unpack timeBS :: Maybe Time.UTCTime
      when (isNothing time) $ fail ("invalid time string: " ++ BSC.unpack timeBS)
-     A.word8 10
      return $ PersonInfo name email (fromJust time)
 
-type Name = String
-type Email = String
+instance Arbitrary PersonInfo where
+  arbitrary = do
+    firstName <- listOf1 $ choose ('A', 'z')
+    lastName <- listOf1 $ choose ('A', 'z')
+    time <- posixSecondsToUTCTime . fromInteger <$> choose (0, 2446479042)
+    let name = firstName ++ " " ++ lastName
+    let email = firstName ++ "@" ++ lastName ++ ".com"
+    return $ PersonInfo name email time
 
+instance Arbitrary Commit where
+  arbitrary = Commit
+              <$> arbitrary -- tree
+              <*> listOf arbitrary -- parents
+              <*> arbitrary -- author
+              <*> arbitrary -- committer
+              <*> listOf1 arbitrary -- msg
+
+prop_commitRT :: Commit -> Bool
+prop_commitRT cmt = deserialize (serialize cmt) == Right cmt
+
+-- actual commit-related commands
 writeTree :: IO ()
 writeTree = readIndex
              -- >>= either print (putStrLn . T.drawTree . (show <$>) . treeOf . mkTreeFromIndex)
