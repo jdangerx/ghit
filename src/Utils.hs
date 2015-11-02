@@ -42,6 +42,16 @@ getRepoRootDir = do
   gitDir <- getGitDirectory
   return . takeDirectory . dropTrailingPathSeparator $ gitDir
 
+fileInGitDir :: FilePath -> IO Bool
+fileInGitDir fp = do
+  gitDir <- getGitDirectory
+  doesFileExist (gitDir </> fp)
+
+hashIsInGitDir :: String -> IO Bool
+hashIsInGitDir hexes =
+  let (h, t) = splitAt 2 hexes
+  in fileInGitDir ("objects" </> h </> t)
+
 digit :: Word8 -> Bool
 digit w = w >= 48 && w <= 57
 

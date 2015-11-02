@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Commit
        ( writeTree
-       -- , commitTree
+       , commitTree
        -- , commit
        , Commit
        , gitTreeOf
@@ -114,9 +114,26 @@ prop_commitRT cmt = deserialize (serialize cmt) == Right cmt
 -- actual commit-related commands
 writeTree :: IO ()
 writeTree = readIndex
-             -- >>= either print (putStrLn . T.drawTree . (show <$>) . treeOf . mkTreeFromIndex)
              >>= either print
              (writeTreeRec . mkTreeFromIndex)
+
+me :: IO PersonInfo
+me = PersonInfo "John Xia" "john.danger.xia@gmail.com"
+     <$> Time.getCurrentTime
+
+commitTree :: String -> String -> IO ()
+commitTree sha' msg =
+  do
+    indexExists <- fileInGitDir "index"
+    unless indexExists $ fail "index file does not exist"
+    mkCommit sha' msg >>= print
+
+mkCommit :: String -> String -> IO Commit
+mkCommit hexes msg = do
+  let parents = []
+  author <- me
+  committer <- me
+  return $ Commit (fromHex hexes) parents author committer msg
 
 mkTreeFromIndex :: Index -> GitTree
 mkTreeFromIndex (Index { entriesOf = entries }) =

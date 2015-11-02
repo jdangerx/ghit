@@ -11,9 +11,10 @@ import Utils
 
 main :: IO ()
 main = do
-  [cmd, file] <- getArgs
+  [cmd, file, msg] <- getArgs
   return ()
   when (cmd == "find-git") $ getGitDirectory >>= print
   when (cmd == "add") $ add file
   when (cmd == "show-index") $ showIndex file
   when (cmd == "write-tree") $ writeTree
+  when (cmd == "commit-tree") $ commitTree file msg
