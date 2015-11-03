@@ -14,9 +14,8 @@ import Utils
 
 add :: FilePath -> IO ()
 add fp = do
-  gitDir <- getGitDirectory
-  let indexPath = gitDir </> "index"
-  indexExists <- doesFileExist indexPath
+  indexExists <- fileInGitDir "index"
+  indexPath <- (</> "index") <$> getGitDirectory
   ind' <- if indexExists
           then liftM (A.parseOnly index) (BS.readFile indexPath)
           else return $ Right emptyIndex

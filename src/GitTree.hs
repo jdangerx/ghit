@@ -4,6 +4,7 @@ module GitTree where
 import Control.Monad
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
+import Data.List (sort)
 import qualified Data.Tree as T
 
 import qualified Data.Attoparsec.ByteString as A
@@ -21,7 +22,7 @@ data TreeEntry = TreeEntry GitFileMode FilePath SHA1 | Root
 instance GitObject GitTree where
   typeName _ = "tree"
   content gitTree = BSC.concat
-                    $ map
+                    $ sort . map
                     (\ (T.Node entry _) -> serEntry entry)
                     . T.subForest . treeOf $ gitTree
 

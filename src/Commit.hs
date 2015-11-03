@@ -2,7 +2,7 @@
 module Commit
        ( writeTree
        , commitTree
-       -- , commit
+       , commit
        , Commit
        , gitTreeOf
        , parentsOf
@@ -27,6 +27,7 @@ import Test.QuickCheck
 import GitTree
 import Index
 import Object
+import Ref
 import Utils
 
 data Commit = Commit { gitTreeOf :: SHA1
@@ -130,34 +131,49 @@ commitTree sha' msg =
 
 mkCommit :: String -> String -> IO Commit
 mkCommit hexes msg = do
-  let parents = []
+  Direct parent <- readHead
+  let parents = [fromHex parent]
   author <- me
   committer <- me
   return $ Commit (fromHex hexes) parents author committer msg
+
+commit :: String -> IO ()
+commit msg = do
+  ind <- readIndex
+  case ind of
+   Left err -> print err
+   Right ind' -> do
+     let tree = mkTreeFromIndex ind'
+     writeTreeRec tree
+     commitInst <- mkCommit (hexSha . sha $ tree) msg
+     write commitInst
+     symRef <- readSymRef "HEAD"
+     updateRef symRef (Direct (hexSha . sha $ commitInst))
 
 mkTreeFromIndex :: Index -> GitTree
 mkTreeFromIndex (Index { entriesOf = entries }) =
   dirMapToTree . mkDirMap $ entries
 
-dirMapToTree :: M.Map (Maybe FilePath) [Entry] -> GitTree
+dirMapToTree :: M.Map (Maybe FilePath) (M.Map FilePath Entry) -> GitTree
 dirMapToTree dirMap =
-  let subForest = concatMap snd . M.toList . M.mapWithKey pairToForest $ dirMap
+  let subForest = M.foldrWithKey pairToForest [] dirMap :: [T.Tree TreeEntry]
       rootEntry = Root
   in GitTree (T.Node rootEntry subForest)
 
-pairToForest :: Maybe FilePath -> [Entry] -> T.Forest TreeEntry
-pairToForest Nothing blobs = mkBlobNode <$> blobs
-pairToForest (Just dirName) subs = [mkTreeNode dirName subs]
+pairToForest :: Maybe FilePath -> M.Map FilePath Entry
+             -> [T.Tree TreeEntry] -> [T.Tree TreeEntry]
+pairToForest Nothing blobs = (++) . M.elems . M.mapWithKey mkBlobNode $ blobs 
+pairToForest (Just dirName) subs = (:) (mkTreeNode dirName subs)
 
-mkDirMap :: [Entry] -> M.Map (Maybe FilePath) [Entry]
-mkDirMap = M.fromListWith (++) . map getTopLevelPath
+mkDirMap :: M.Map FilePath Entry -> M.Map (Maybe FilePath) (M.Map FilePath Entry)
+mkDirMap = M.foldrWithKey getTopLevelPath M.empty
 
-mkBlobNode :: Entry -> T.Tree TreeEntry
-mkBlobNode Entry { modeOf = (Mode _ fm), shaOf = sha', entryPathOf = fp } =
+mkBlobNode :: FilePath -> Entry -> T.Tree TreeEntry
+mkBlobNode fp Entry { modeOf = (Mode _ fm), shaOf = sha'} =
   let treeEntry = TreeEntry fm (takeFileName fp) sha'
   in T.Node treeEntry []
 
-mkTreeNode :: FilePath -> [Entry] -> T.Tree TreeEntry
+mkTreeNode :: FilePath -> M.Map FilePath Entry -> T.Tree TreeEntry
 mkTreeNode fp subs =
   let dirMap = mkDirMap subs
       tree = dirMapToTree dirMap
@@ -165,10 +181,12 @@ mkTreeNode fp subs =
       treeEntry = TreeEntry DirMode fp sha'
   in T.Node treeEntry (T.subForest $ treeOf tree)
 
-getTopLevelPath :: Entry -> (Maybe FilePath, [Entry])
-getTopLevelPath e@(Entry { entryPathOf = path }) =
-  let (h, t) = break isPathSeparator path
+getTopLevelPath :: FilePath -> Entry
+                -> M.Map (Maybe FilePath) (M.Map FilePath Entry)
+                -> M.Map (Maybe FilePath) (M.Map FilePath Entry)
+getTopLevelPath fp ent oldMap =
+  let (h, t) = break isPathSeparator fp
   in
-   if pathSeparator `elem` path
-   then (Just h, [e { entryPathOf = drop 1 t }])
-   else (Nothing, [e])
+   if pathSeparator `elem` fp
+   then M.insertWith M.union (Just h) (M.fromList [(drop 1 t, ent)]) oldMap
+   else M.insertWith M.union Nothing (M.fromList [(fp, ent)]) oldMap

@@ -1,4 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE FlexibleInstances #-}
+
 module Index
        ( module Index
        , module Object
@@ -8,6 +10,7 @@ import Control.Monad
 import Data.Bits ((.&.), shift, testBit, bit)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
+import qualified Data.Map as M
 import Data.List (sortOn)
 
 import Crypto.Hash.SHA1 (hash)
@@ -25,14 +28,14 @@ import Utils
 
 data Index = Index { versionOf :: Int
                    , numEntriesOf :: Int
-                   , entriesOf :: [Entry]
+                   , entriesOf :: M.Map FilePath Entry
                    , extensionsOf :: [Extension]
                    , checksumOf :: SHA1
   }
            deriving (Eq, Show)
 
 emptyIndex :: Index
-emptyIndex = updateChecksum $ Index 2 0 [] [] (SHA1 "")
+emptyIndex = updateChecksum $ Index 2 0 (M.empty) [] (SHA1 "")
 
 instance QC.Arbitrary Index where
   arbitrary = do
@@ -40,10 +43,11 @@ instance QC.Arbitrary Index where
     let version = 2
     numEntries <- QC.arbitrary `QC.suchThat` (> 0)
     entries <- QC.vectorOf numEntries QC.arbitrary
+    let entryMap = M.fromList entries
     let extensions = []
     checksum <- QC.arbitrary
     return . updateChecksum
-      $ Index version numEntries entries extensions checksum
+      $ Index version numEntries entryMap extensions checksum
 
 data Entry = Entry { ctimeOf :: Int
                    , mtimeOf :: Int
@@ -55,11 +59,10 @@ data Entry = Entry { ctimeOf :: Int
                    , fileSizeOf :: Int
                    , shaOf :: SHA1
                    , flagsOf :: Flags
-                   , entryPathOf :: FilePath
   }
              deriving (Eq, Show)
 
-instance QC.Arbitrary Entry where
+instance QC.Arbitrary (FilePath, Entry) where
   arbitrary = do
     ctime <- QC.arbitrary `QC.suchThat` (> 0)
     mtime <- QC.arbitrary `QC.suchThat` (> 0)
@@ -73,7 +76,7 @@ instance QC.Arbitrary Entry where
     flagsBadNameLen <- QC.arbitrary
     entryPath <- QC.arbitrary `QC.suchThat` (\s -> not (null s) && '\0' `notElem` s)
     let flags = flagsBadNameLen {nameLenOf = length entryPath}
-    return $ Entry ctime mtime device ino mode uid gid fileSize' sha' flags entryPath
+    return $ (entryPath, Entry ctime mtime device ino mode uid gid fileSize' sha' flags)
 
 data Extension = Ext { signatureOf :: BS.ByteString
                      , extContentOf :: BS.ByteString }
@@ -118,7 +121,7 @@ index = do
   let noChecksum = BS.take (BS.length fullContent - 20) fullContent
   version <- parse32Bit
   numEntries <- parse32Bit
-  entries <- A.count numEntries $ entry version
+  entries <- M.fromList <$> (A.count numEntries $ entry version)
   exts <- A.many' extension
   checksum <- SHA1 <$> A.take 20
   when (SHA1 (hash noChecksum) /= checksum)
@@ -141,7 +144,7 @@ pMode = do
                _ -> error "Invalid file mode encountered!"
   return $ Mode objType gitFM
 
-entry :: Int -> A.Parser Entry
+entry :: Int -> A.Parser (FilePath, Entry)
 entry version =
   let toNs [s, ns] = s * billion + ns
   in
@@ -165,7 +168,8 @@ entry version =
                             3 -> 8 - (64 + nameLenOf flags) `mod` 8
                             4 -> 0
      A.take numBytesPadding
-     return $ Entry ctime mtime device ino mode uid gid fileSize' sha' flags entryPath
+     return $ (entryPath,
+               Entry ctime mtime device ino mode uid gid fileSize' sha' flags)
 
 otherExtensions :: A.Parser Extension
 otherExtensions = do
@@ -185,14 +189,13 @@ writeIndex (Index version numEntries entries exts (SHA1 sha')) =
   [ "DIRC"
   , pack32BitInt version
   , pack32BitInt numEntries] ++
-  map writeEntry entries ++
+  M.elems (M.mapWithKey writeEntry entries) ++
   map writeExtension exts ++
   [sha']
 
-writeEntry :: Entry -> BS.ByteString
-writeEntry (Entry
-            ctime mtime device ino mode uid gid fileSize' (SHA1 sha') flags
-            entryPath) =
+writeEntry :: FilePath -> Entry -> BS.ByteString
+writeEntry entryPath (Entry
+            ctime mtime device ino mode uid gid fileSize' (SHA1 sha') flags) =
   let unpadded = BS.concat [ pack32BitInt $ ctime `shift` (-32)
                            , pack32BitInt ctime
                            , pack32BitInt $ mtime `shift` (-32)
@@ -222,18 +225,15 @@ readIndex :: IO (Either String Index)
 readIndex =
   liftM (A.parseOnly index) $ liftM (</> "index") getGitDirectory >>= BS.readFile
 
-addEntry :: Index -> Entry -> Index
-addEntry ind@(Index {numEntriesOf = numEntries, entriesOf = entries}) ent =
-  let newNEntries = numEntries + 1
-      newEntriesUnsorted = if ent `notElem` entries then entries ++ [ent] else entries
-      newEntries = sortOn (\e -> entryPathOf e ++ show (stageOf (flagsOf e)))
-                   newEntriesUnsorted
+addEntry :: Index -> (FilePath, Entry) -> Index
+addEntry ind@(Index {entriesOf = entries}) (fp, ent) =
+  let newEntries = M.insert fp ent entries
       indWithNewEntries =
-        ind { numEntriesOf = newNEntries, entriesOf = newEntries }
+        ind { numEntriesOf = M.size newEntries, entriesOf = newEntries }
   in
    updateChecksum indWithNewEntries
 
-makeEntry :: GitObject a => FilePath -> a -> IO Entry
+makeEntry :: GitObject a => FilePath -> a -> IO (FilePath, Entry)
 makeEntry fpRelToRepo obj = do
   repoRootDir <- getRepoRootDir
   fileStatus <- getFileStatus (repoRootDir </> fpRelToRepo)
@@ -252,24 +252,25 @@ makeEntry fpRelToRepo obj = do
                     , reservedOf = Nothing
                     , skipWorktreeOf = Nothing
                     , intentToAddOf = Nothing}
-  return Entry { ctimeOf = fromEnum $ statusChangeTimeHiRes fileStatus
-               , mtimeOf = fromEnum $ modificationTimeHiRes fileStatus
-               , deviceOf = fromEnum $ deviceID fileStatus
-               , inoOf = fromEnum $ fileID fileStatus
-               , modeOf = mode
-               , uidOf = fromEnum $ fileOwner fileStatus
-               , gidOf = fromEnum $ fileGroup fileStatus
-               , fileSizeOf = fromEnum $ fileSize fileStatus
-               , shaOf = sha obj
-               , flagsOf = flags
-               , entryPathOf = fpRelToRepo }
+  return (fpRelToRepo,
+          Entry { ctimeOf = fromEnum $ statusChangeTimeHiRes fileStatus
+                , mtimeOf = fromEnum $ modificationTimeHiRes fileStatus
+                , deviceOf = fromEnum $ deviceID fileStatus
+                , inoOf = fromEnum $ fileID fileStatus
+                , modeOf = mode
+                , uidOf = fromEnum $ fileOwner fileStatus
+                , gidOf = fromEnum $ fileGroup fileStatus
+                , fileSizeOf = fromEnum $ fileSize fileStatus
+                , shaOf = sha obj
+                , flagsOf = flags })
 -- tests
 
 prop_indRT :: Index -> Bool
 prop_indRT ind = A.parseOnly index (writeIndex ind) == Right ind
 
-prop_entryV2RT :: Entry -> Bool
-prop_entryV2RT entry' = A.parseOnly (entry 2) (writeEntry entry') == Right entry'
+prop_entryV2RT :: (FilePath, Entry) -> Bool
+prop_entryV2RT (entryPath, entry') =
+  A.parseOnly (entry 2) (writeEntry entryPath entry') == Right (entryPath, entry')
 
 prop_extRT :: Extension -> Bool
 prop_extRT ext = A.parseOnly extension (writeExtension ext) == Right ext
@@ -277,9 +278,13 @@ prop_extRT ext = A.parseOnly extension (writeExtension ext) == Right ext
 prop_flagsV2RT :: Flags -> Bool
 prop_flagsV2RT flags = Right flags == (makeV2Flags <$> A.parseOnly parse16Bit (writeFlags flags))
 
-
 showIndex :: FilePath -> IO ()
-showIndex fp = BS.readFile fp >>= print . A.parseOnly index
+showIndex fp = BS.readFile fp >>= printEntries . A.parseOnly index
+
+printEntries :: Either String Index -> IO ()
+printEntries (Right (Index {entriesOf = entries})) =
+  print $ M.toList . M.map (hexSha . shaOf) $ entries
+printEntries (Left err) = print err
 
 -- Utils
 makeV2Flags :: Int -> Flags

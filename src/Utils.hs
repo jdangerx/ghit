@@ -52,6 +52,10 @@ hashIsInGitDir hexes =
   let (h, t) = splitAt 2 hexes
   in fileInGitDir ("objects" </> h </> t)
 
+
+gitRead :: FilePath -> IO BS.ByteString
+gitRead fp = getGitDirectory >>= BS.readFile . (</> fp)
+
 digit :: Word8 -> Bool
 digit w = w >= 48 && w <= 57
 

@@ -18,3 +18,4 @@ main = do
   when (cmd == "show-index") $ showIndex file
   when (cmd == "write-tree") $ writeTree
   when (cmd == "commit-tree") $ commitTree file msg
+  when (cmd == "commit") $ commit file
