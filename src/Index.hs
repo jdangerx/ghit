@@ -11,7 +11,6 @@ import Data.Bits ((.&.), shift, testBit, bit)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.Map as M
-import Data.List (sortOn)
 
 import Crypto.Hash.SHA1 (hash)
 import qualified Data.Attoparsec.ByteString as A
@@ -35,7 +34,7 @@ data Index = Index { versionOf :: Int
            deriving (Eq, Show)
 
 emptyIndex :: Index
-emptyIndex = updateChecksum $ Index 2 0 (M.empty) [] (SHA1 "")
+emptyIndex = updateChecksum $ Index 2 0 M.empty [] (SHA1 "")
 
 instance QC.Arbitrary Index where
   arbitrary = do
