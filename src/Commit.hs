@@ -131,8 +131,12 @@ commitTree sha' msg =
 
 mkCommit :: String -> String -> IO Commit
 mkCommit hexes msg = do
-  Direct parent <- readHead
-  let parents = [fromHex parent]
+  headContent <- readHead
+  let parents = case headContent of
+                 Nothing -> []
+                 Just something -> case something of
+                   Direct hash -> [hash]
+                   _ -> []
   author <- me
   committer <- me
   return $ Commit (fromHex hexes) parents author committer msg
@@ -145,10 +149,10 @@ commit msg = do
    Right ind' -> do
      let tree = mkTreeFromIndex ind'
      writeTreeRec tree
-     commitInst <- mkCommit (hexSha . sha $ tree) msg
-     write commitInst
+     theCommit <- mkCommit (hexSha . sha $ tree) msg
+     write theCommit
      symRef <- readSymRef "HEAD"
-     updateRef symRef (Direct (hexSha . sha $ commitInst))
+     updateRef symRef (Direct $ sha theCommit)
 
 mkTreeFromIndex :: Index -> GitTree
 mkTreeFromIndex (Index { entriesOf = entries }) =

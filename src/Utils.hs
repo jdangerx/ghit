@@ -24,23 +24,33 @@ fromHex s =
 hexSha :: SHA1 -> String
 hexSha (SHA1 s) = toHexes s
 
+shaPath :: SHA1 -> FilePath
+shaPath s = let (h, t) = splitAt 2 $ hexSha s
+            in h </> t
+
 instance Arbitrary SHA1 where
   arbitrary = SHA1 . BS.pack <$> vectorOf 20 (choose (0, 255) :: Gen Word8)
 
+gitRead :: FilePath -> IO (Either String BS.ByteString)
+gitRead fp = do
+  gitDir <- getGitDirectory
+  exists <- fileInGitDir fp
+  if exists
+    then Right <$> BS.readFile (gitDir </> fp)
+    else return $ Left "file not found"
+
 getGitDirectory :: IO FilePath
-getGitDirectory = do
-  cwd <- join $ makeAbsolute <$> getCurrentDirectory
-  gitDirIsHere <- doesDirectoryExist ".git"
-  if gitDirIsHere
-    then makeAbsolute ".git"
-    else if cwd == "/"
-         then error "Not in Git repo!"
-         else withCurrentDirectory ".." getGitDirectory
+getGitDirectory = (</> ".git") <$> getRepoRootDir
 
 getRepoRootDir :: IO FilePath
 getRepoRootDir = do
-  gitDir <- getGitDirectory
-  return . takeDirectory . dropTrailingPathSeparator $ gitDir
+  cwd <- getCurrentDirectory >>= canonicalizePath
+  gitDirIsHere <- doesDirectoryExist ".git"
+  if gitDirIsHere
+    then return cwd
+    else if cwd == "/"
+         then error "Not in Git repo!"
+         else withCurrentDirectory ".." getGitDirectory
 
 fileInGitDir :: FilePath -> IO Bool
 fileInGitDir fp = do
@@ -52,9 +62,8 @@ hashIsInGitDir hexes =
   let (h, t) = splitAt 2 hexes
   in fileInGitDir ("objects" </> h </> t)
 
-
-gitRead :: FilePath -> IO BS.ByteString
-gitRead fp = getGitDirectory >>= BS.readFile . (</> fp)
+readSHA :: SHA1 -> IO (Either String BS.ByteString)
+readSHA = gitRead . shaPath
 
 digit :: Word8 -> Bool
 digit w = w >= 48 && w <= 57
