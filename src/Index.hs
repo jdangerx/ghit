@@ -18,7 +18,6 @@ import Data.Attoparsec.Combinator (lookAhead)
 import qualified Test.QuickCheck as QC
 import System.FilePath
 import System.Posix.Files
-import System.Posix.Types
 
 import Object
 import Utils
@@ -234,8 +233,8 @@ addEntry ind@(Index {entriesOf = entries}) (fp, ent) =
 
 makeEntry :: GitObject a => FilePath -> a -> IO (FilePath, Entry)
 makeEntry fpRelToRepo obj = do
-  repoRootDir <- getRepoRootDir
-  fileStatus <- getFileStatus (repoRootDir </> fpRelToRepo)
+  repoRoot <- repoRootDir
+  fileStatus <- getFileStatus (repoRoot </> fpRelToRepo)
   let gitFM = if fileMode fileStatus == ownerExecuteMode
               then ExecutableMode
               else NormalMode

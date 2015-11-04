@@ -14,12 +14,9 @@ module Commit
 
 import Control.Monad
 import qualified Data.ByteString.Char8 as BSC
-import qualified Data.Map as M
 import Data.Maybe (fromJust, isNothing)
-import qualified Data.Tree as T
 import qualified Data.Time as Time
 import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
-import System.FilePath
 
 import qualified Data.Attoparsec.ByteString as A
 import Test.QuickCheck
@@ -115,8 +112,8 @@ prop_commitRT cmt = deserialize (serialize cmt) == Right cmt
 -- actual commit-related commands
 writeTree :: IO ()
 writeTree = readIndex
-             >>= either print
-             (writeTreeRec . mkTreeFromIndex)
+            >>= either print
+            (writeTreeRec . mkTreeFromIndex)
 
 me :: IO PersonInfo
 me = PersonInfo "John Xia" "john.danger.xia@gmail.com"
@@ -153,44 +150,3 @@ commit msg = do
      write theCommit
      symRef <- readSymRef "HEAD"
      updateRef symRef (Direct $ sha theCommit)
-
-mkTreeFromIndex :: Index -> GitTree
-mkTreeFromIndex (Index { entriesOf = entries }) =
-  dirMapToTree . mkDirMap $ entries
-
-dirMapToTree :: M.Map (Maybe FilePath) (M.Map FilePath Entry) -> GitTree
-dirMapToTree dirMap =
-  let subForest = M.foldrWithKey pairToForest [] dirMap :: [T.Tree TreeEntry]
-      rootEntry = Root
-  in GitTree (T.Node rootEntry subForest)
-
-pairToForest :: Maybe FilePath -> M.Map FilePath Entry
-             -> [T.Tree TreeEntry] -> [T.Tree TreeEntry]
-pairToForest Nothing blobs = (++) . M.elems . M.mapWithKey mkBlobNode $ blobs 
-pairToForest (Just dirName) subs = (:) (mkTreeNode dirName subs)
-
-mkDirMap :: M.Map FilePath Entry -> M.Map (Maybe FilePath) (M.Map FilePath Entry)
-mkDirMap = M.foldrWithKey getTopLevelPath M.empty
-
-mkBlobNode :: FilePath -> Entry -> T.Tree TreeEntry
-mkBlobNode fp Entry { modeOf = (Mode _ fm), shaOf = sha'} =
-  let treeEntry = TreeEntry fm (takeFileName fp) sha'
-  in T.Node treeEntry []
-
-mkTreeNode :: FilePath -> M.Map FilePath Entry -> T.Tree TreeEntry
-mkTreeNode fp subs =
-  let dirMap = mkDirMap subs
-      tree = dirMapToTree dirMap
-      sha' = sha tree
-      treeEntry = TreeEntry DirMode fp sha'
-  in T.Node treeEntry (T.subForest $ treeOf tree)
-
-getTopLevelPath :: FilePath -> Entry
-                -> M.Map (Maybe FilePath) (M.Map FilePath Entry)
-                -> M.Map (Maybe FilePath) (M.Map FilePath Entry)
-getTopLevelPath fp ent oldMap =
-  let (h, t) = break isPathSeparator fp
-  in
-   if pathSeparator `elem` fp
-   then M.insertWith M.union (Just h) (M.fromList [(drop 1 t, ent)]) oldMap
-   else M.insertWith M.union Nothing (M.fromList [(fp, ent)]) oldMap

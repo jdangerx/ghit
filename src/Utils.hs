@@ -1,6 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Utils where
 
+import Debug.Trace (trace)
+
 import Control.Monad
 import qualified Data.Attoparsec.ByteString as A
 import qualified Data.ByteString as BS
@@ -40,17 +42,17 @@ gitRead fp = do
     else return $ Left "file not found"
 
 getGitDirectory :: IO FilePath
-getGitDirectory = (</> ".git") <$> getRepoRootDir
+getGitDirectory = (</> ".git") <$> repoRootDir
 
-getRepoRootDir :: IO FilePath
-getRepoRootDir = do
+repoRootDir :: IO FilePath
+repoRootDir = do
   cwd <- getCurrentDirectory >>= canonicalizePath
   gitDirIsHere <- doesDirectoryExist ".git"
   if gitDirIsHere
-    then return cwd
+    then trace cwd (return cwd)
     else if cwd == "/"
          then error "Not in Git repo!"
-         else withCurrentDirectory ".." getGitDirectory
+         else withCurrentDirectory ".." repoRootDir
 
 fileInGitDir :: FilePath -> IO Bool
 fileInGitDir fp = do
@@ -61,6 +63,9 @@ hashIsInGitDir :: String -> IO Bool
 hashIsInGitDir hexes =
   let (h, t) = splitAt 2 hexes
   in fileInGitDir ("objects" </> h </> t)
+
+relToRoot :: FilePath -> IO FilePath
+relToRoot fp = liftM2 makeRelative repoRootDir (canonicalizePath fp)
 
 readSHA :: SHA1 -> IO (Either String BS.ByteString)
 readSHA = gitRead . shaPath

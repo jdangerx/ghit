@@ -5,12 +5,14 @@ import Control.Monad
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
 import Data.List (sort)
+import qualified Data.Map as M
 import qualified Data.Tree as T
+import System.FilePath
 
 import qualified Data.Attoparsec.ByteString as A
 import Test.QuickCheck
 
-import Object
+import Index
 import Utils
 
 data GitTree = GitTree { treeOf :: T.Tree TreeEntry }
@@ -23,7 +25,7 @@ instance GitObject GitTree where
   typeName _ = "tree"
   content gitTree = BSC.concat
                     $ sort . map
-                    (\ (T.Node entry _) -> serEntry entry)
+                    (\ (T.Node entry' _) -> serEntry entry')
                     . T.subForest . treeOf $ gitTree
 
   parser = do
@@ -57,6 +59,53 @@ serEntry (TreeEntry gitFM fp (SHA1 shaBS)) =
       serGitFM NormalMode = "100644"
       serGitFM DirMode = "40000"
   in BS.concat [serGitFM gitFM, " ", BSC.pack fp, "\0", shaBS]
+
+-- convert to and from index
+
+mkIndexFromTree :: GitTree -> Index
+mkIndexFromTree = error "mkIndexFromTree not defined"
+
+mkTreeFromIndex :: Index -> GitTree
+mkTreeFromIndex (Index { entriesOf = entries }) =
+  dirMapToTree . mkDirMap $ entries
+
+dirMapToTree :: M.Map (Maybe FilePath) (M.Map FilePath Entry) -> GitTree
+dirMapToTree dirMap =
+  let subForest = M.foldrWithKey pairToForest [] dirMap :: [T.Tree TreeEntry]
+      rootEntry = Root
+  in GitTree (T.Node rootEntry subForest)
+
+pairToForest :: Maybe FilePath -> M.Map FilePath Entry
+             -> [T.Tree TreeEntry] -> [T.Tree TreeEntry]
+pairToForest Nothing blobs = (++) . M.elems . M.mapWithKey mkBlobNode $ blobs 
+pairToForest (Just dirName) subs = (:) (mkTreeNode dirName subs)
+
+mkDirMap :: M.Map FilePath Entry -> M.Map (Maybe FilePath) (M.Map FilePath Entry)
+mkDirMap = M.foldrWithKey getTopLevelPath M.empty
+
+mkBlobNode :: FilePath -> Entry -> T.Tree TreeEntry
+mkBlobNode fp Entry { modeOf = (Mode _ fm), shaOf = sha'} =
+  let treeEntry = TreeEntry fm (takeFileName fp) sha'
+  in T.Node treeEntry []
+
+mkTreeNode :: FilePath -> M.Map FilePath Entry -> T.Tree TreeEntry
+mkTreeNode fp subs =
+  let dirMap = mkDirMap subs
+      tree = dirMapToTree dirMap
+      sha' = sha tree
+      treeEntry = TreeEntry DirMode fp sha'
+  in T.Node treeEntry (T.subForest $ treeOf tree)
+
+getTopLevelPath :: FilePath -> Entry
+                -> M.Map (Maybe FilePath) (M.Map FilePath Entry)
+                -> M.Map (Maybe FilePath) (M.Map FilePath Entry)
+getTopLevelPath fp ent oldMap =
+  let (h, t) = break isPathSeparator fp
+  in
+   if pathSeparator `elem` fp
+   then M.insertWith M.union (Just h) (M.fromList [(drop 1 t, ent)]) oldMap
+   else M.insertWith M.union Nothing (M.fromList [(fp, ent)]) oldMap
+
 
 instance Arbitrary TreeEntry where
   arbitrary = do

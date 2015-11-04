@@ -31,9 +31,9 @@ add fp = do
                              BS.writeFile indexPath (writeIndex newInd)
 
 addBlob :: Index -> FilePath -> IO Index
-addBlob ind fpRelToRepo = do
-  repoRootDir <- getRepoRootDir
-  blob <- mkBlobFromFile (repoRootDir </> fpRelToRepo)
+addBlob ind fp = do
+  fpRelToRepo <- relToRoot fp
+  blob <- mkBlobFromFile fp
   write blob
   updateIndex ind fpRelToRepo blob
 
@@ -45,5 +45,4 @@ getFilesInDir dir = do
   subDirs <- mapM canonicalizePath subDirsRel
   files <- filterM doesFileExist ls >>= mapM canonicalizePath
   subDirFiles <- concat <$> mapM getFilesInDir subDirs
-  repoRootDir <- getRepoRootDir
-  return $ makeRelative repoRootDir <$> (files ++ subDirFiles)
+  return (files ++ subDirFiles)
