@@ -61,9 +61,60 @@ serEntry (TreeEntry gitFM fp (SHA1 shaBS)) =
   in BS.concat [serGitFM gitFM, " ", BSC.pack fp, "\0", shaBS]
 
 -- convert to and from index
+fromTreeEntry :: TreeEntry -> (FilePath, Entry)
+fromTreeEntry (TreeEntry fm fp sha') =
+  let mode = Mode File fm
+  in (fp, emptyEntry { flagsOf = (flagsOf emptyEntry) { nameLenOf = length fp }
+                     , modeOf = mode
+                     , shaOf = sha' })
 
 mkIndexFromTree :: GitTree -> Index
-mkIndexFromTree = error "mkIndexFromTree not defined"
+mkIndexFromTree (GitTree tree) =
+  let entries = M.fromList . map fromTreeEntry . filter (/= Root)
+                $ foldr (\te ls -> case te of
+                                    TreeEntry NormalMode _ _ -> te : ls
+                                    TreeEntry ExecutableMode _ _ -> te : ls
+                                    _ -> ls) [] tree
+  in Index 2 (M.size entries) entries [] (SHA1 "")
+
+prependDirName :: FilePath -> T.Tree TreeEntry -> T.Tree TreeEntry
+prependDirName dirName (T.Node treeEntry subForest) =
+  let newLabel = case treeEntry of
+                  Root -> TreeEntry DirMode dirName (SHA1 "")
+                  TreeEntry fm fp sha' -> TreeEntry fm (dirName </> fp) sha'
+  in
+   T.Node newLabel (prependDirName dirName <$> subForest)
+
+fillOutDirEntry :: T.Tree TreeEntry -> IO (Either String (T.Tree TreeEntry))
+fillOutDirEntry (T.Node (TreeEntry DirMode dirName sha') _) = do
+  eitherTree <- treeFromSHA sha'
+  let withDirNames = prependDirName dirName <$> eitherTree :: Either String (T.Tree TreeEntry)
+  buildTree withDirNames
+
+fillOutDirEntry t = return . return $ t
+
+buildTree :: Either String (T.Tree TreeEntry) -> IO (Either String (T.Tree TreeEntry))
+buildTree (Right (T.Node treeEntry subForest)) = do
+  newSFs <- mapM fillOutDirEntry subForest
+  return $ T.Node treeEntry <$> sequence newSFs
+buildTree (Left err) = return $ Left err
+
+treeFromSHA :: SHA1 -> IO (Either String (T.Tree TreeEntry))
+treeFromSHA s = do
+  cont <- readSHA s
+  let tree = cont >>= (treeOf <$>) . readObj
+  return tree
+
+readTreeNoWrite :: SHA1 -> IO (Either String Index)
+readTreeNoWrite s = do
+  tree <- treeFromSHA s >>= buildTree
+  return $ mkIndexFromTree . GitTree <$> tree
+
+readTree :: SHA1 -> IO ()
+readTree s = do
+  ind <- readTreeNoWrite s
+  indPath <- relToRoot ".git/index"
+  either print (BS.writeFile indPath . writeIndex) ind
 
 mkTreeFromIndex :: Index -> GitTree
 mkTreeFromIndex (Index { entriesOf = entries }) =

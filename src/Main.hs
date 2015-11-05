@@ -4,9 +4,10 @@ import Control.Monad
 import System.Environment
 
 import Add
+import Commit
+import GitTree
 import Index
 import Object
-import Commit
 import Utils
 
 main :: IO ()
@@ -19,3 +20,4 @@ main = do
   when (cmd == "write-tree") $ writeTree
   when (cmd == "commit-tree") $ commitTree file msg
   when (cmd == "commit") $ commit file
+  when (cmd == "read-tree") $ readTree (fromHex file)

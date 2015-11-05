@@ -56,6 +56,9 @@ class GitObject a where
                 BL.writeFile filePath $ compressed obj
         else print ("object file " ++ toHexes sha' ++ " already exists, skipping :)")
 
+  readObj :: BS.ByteString -> Either String a
+  readObj = deserialize . BL.toStrict . Zlib.decompress . BL.fromStrict
+
 pContLen :: BS.ByteString -> A.Parser Int
 pContLen bs = A.string bs *> A.word8 32 *> parseAsciiInt <* A.word8 0
 
