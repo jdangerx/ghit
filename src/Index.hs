@@ -60,6 +60,10 @@ data Entry = Entry { ctimeOf :: Int
   }
              deriving (Eq, Show)
 
+emptyEntry :: Entry
+emptyEntry = Entry 0 0 0 0 (Mode File NormalMode) 0 0 0 (SHA1 "")
+             (Flags False False 0 0 Nothing Nothing Nothing)
+
 instance QC.Arbitrary (FilePath, Entry) where
   arbitrary = do
     ctime <- QC.arbitrary `QC.suchThat` (> 0)
@@ -182,14 +186,15 @@ extension = A.choice [otherExtensions]
 -- Writers
 
 writeIndex :: Index -> BS.ByteString
-writeIndex (Index version numEntries entries exts (SHA1 sha')) =
-  BS.concat $
-  [ "DIRC"
-  , pack32BitInt version
-  , pack32BitInt numEntries] ++
-  M.elems (M.mapWithKey writeEntry entries) ++
-  map writeExtension exts ++
-  [sha']
+writeIndex (Index version numEntries entries exts _) =
+  let cont = BS.concat $ [ "DIRC"
+                         , pack32BitInt version
+                         , pack32BitInt numEntries] ++
+             M.elems (M.mapWithKey writeEntry entries) ++
+             map writeExtension exts
+      -- make sure that checksum is right
+      sha' = hash cont
+  in BS.append cont sha'
 
 writeEntry :: FilePath -> Entry -> BS.ByteString
 writeEntry entryPath (Entry
@@ -281,7 +286,7 @@ showIndex fp = BS.readFile fp >>= printEntries . A.parseOnly index
 
 printEntries :: Either String Index -> IO ()
 printEntries (Right (Index {entriesOf = entries})) =
-  print $ M.toList . M.map (hexSha . shaOf) $ entries
+  putStrLn $ unlines . map show . M.toList . M.map (\e -> hexSha . shaOf $ e) $ entries
 printEntries (Left err) = print err
 
 -- Utils
@@ -331,6 +336,7 @@ writeMode (Mode objType gitFM) =
       gitFMBits = case gitFM of
                    NormalMode -> 420
                    ExecutableMode -> 493
+                   _ -> error "trying to write a directory to index!"
   in
    pack32BitInt $ typeBits `shift` 12 + gitFMBits
 
