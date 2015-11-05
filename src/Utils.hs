@@ -1,8 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Utils where
 
-import Debug.Trace (trace)
-
 import Control.Monad
 import qualified Data.Attoparsec.ByteString as A
 import qualified Data.ByteString as BS
@@ -49,7 +47,7 @@ repoRootDir = do
   cwd <- getCurrentDirectory >>= canonicalizePath
   gitDirIsHere <- doesDirectoryExist ".git"
   if gitDirIsHere
-    then trace cwd (return cwd)
+    then return cwd
     else if cwd == "/"
          then error "Not in Git repo!"
          else withCurrentDirectory ".." repoRootDir
@@ -68,7 +66,7 @@ relToRoot :: FilePath -> IO FilePath
 relToRoot fp = liftM2 makeRelative repoRootDir (canonicalizePath fp)
 
 readSHA :: SHA1 -> IO (Either String BS.ByteString)
-readSHA = gitRead . shaPath
+readSHA = gitRead . ("objects" </>) . shaPath
 
 digit :: Word8 -> Bool
 digit w = w >= 48 && w <= 57
