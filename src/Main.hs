@@ -5,6 +5,7 @@ import System.Environment
 
 import Add
 import Commit
+import Checkout
 import GitTree
 import Index
 import Object
@@ -21,3 +22,4 @@ main = do
   when (cmd == "commit-tree") $ commitTree file msg
   when (cmd == "commit") $ commit file
   when (cmd == "read-tree") $ readTree (fromHex file)
+  when (cmd == "checkout") $ checkout file
